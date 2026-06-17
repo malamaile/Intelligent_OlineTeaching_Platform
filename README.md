@@ -1,2 +1,3 @@
 # Intelligent_OlineTeaching_Platform
 这是一个智能化在线教学支持服务平台管理中心系统
+后端：Java+Spring Boot+Redis
