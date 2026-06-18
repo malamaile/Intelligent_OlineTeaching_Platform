@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="DataSourceManagerImpl" format="xml" multifile-model="true">
-    <data-source source="LOCAL" name="IOTP" uuid="17e515cb-1152-4bc6-ace3-56a2e3a16c74">
+    <data-source source="LOCAL" name="IOTP" uuid="fd236c7a-e52f-482c-9cf2-60eb42d7fbac">
       <driver-ref>mysql.8</driver-ref>
       <synchronize>true</synchronize>
       <jdbc-driver>com.mysql.cj.jdbc.Driver</jdbc-driver>
