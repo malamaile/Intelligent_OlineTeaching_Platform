@@ -1,0 +1,54 @@
+# ============================================================
+# IOTP 智能化在线教学支持服务平台 — 应用配置
+# ============================================================
+
+server:
+  port: 8080
+  servlet:
+    context-path: /api/v1
+
+# ======================== 数据源配置 ========================
+spring:
+  datasource:
+    # 数据库连接 URL（请根据实际环境修改 host / port）
+    url: jdbc:mysql://localhost:3306/iotp?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    username: root
+    password: '@Yyj290089'
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    # 连接池配置（Spring Boot 2.x 默认 HikariCP）
+    hikari:
+      minimum-idle: 5
+      maximum-pool-size: 20
+      idle-timeout: 300000
+      max-lifetime: 1200000
+      connection-timeout: 30000
+
+  # 禁止自动执行 SQL 初始化脚本（已手动管理 init.sql）
+  sql:
+    init:
+      mode: never
+
+# ======================== MyBatis-Plus 配置 ========================
+mybatis-plus:
+  # 全局配置
+  global-config:
+    db-config:
+      # 主键类型：AUTO — 数据库自增
+      id-type: auto
+      # 逻辑删除字段配置
+      logic-delete-field: isDeleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+  # 包位置配置
+  mapper-locations: classpath*:/mapper/**/*.xml
+  type-aliases-package: com.iotp.entity
+  # SQL 日志（开发环境开启，上线关闭）
+  configuration:
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+    map-underscore-to-camel-case: true
+
+# ======================== 日志配置 ========================
+logging:
+  level:
+    root: info
+    com.iotp: debug
