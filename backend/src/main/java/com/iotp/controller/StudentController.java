@@ -87,7 +87,8 @@ public class StudentController {
     public Result<Map<String, Object>> updateProgress(
             @PathVariable Long courseId,
             @RequestBody Map<String, Object> body) {
-        Long chapterId = Long.valueOf(body.get("chapterId").toString());
+        Long chapterId = body.get("chapterId") != null
+                ? Long.valueOf(body.get("chapterId").toString()) : null;
         Integer position = body.get("position") != null
                 ? Integer.valueOf(body.get("position").toString()) : 0;
         Integer duration = body.get("duration") != null

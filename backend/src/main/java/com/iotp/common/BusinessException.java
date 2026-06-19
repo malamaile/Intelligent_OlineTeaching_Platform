@@ -5,6 +5,8 @@ package com.iotp.common;
  */
 public class BusinessException extends RuntimeException {
 
+    private static final long serialVersionUID = 1L;
+
     /** 业务错误码 */
     private final int code;
 

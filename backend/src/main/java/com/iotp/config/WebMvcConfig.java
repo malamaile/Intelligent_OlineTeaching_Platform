@@ -23,13 +23,13 @@ public class WebMvcConfig implements WebMvcConfigurer {
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
         registry.addInterceptor(loginInterceptor)
-                // 拦截所有 API 请求
-                .addPathPatterns("/api/**")
+                // 拦截所有请求（context-path 外的实际路径）
+                .addPathPatterns("/**")
                 // 放行不需要登录的接口
                 .excludePathPatterns(
-                        "/api/auth/login",                         // 登录
-                        "/api/auth/forgot-password/verify",        // 忘记密码-验证身份
-                        "/api/auth/forgot-password/reset"          // 忘记密码-重置密码
+                        "/auth/login",                         // 登录
+                        "/auth/forgot-password/verify",        // 忘记密码-验证身份
+                        "/auth/forgot-password/reset"          // 忘记密码-重置密码
                 );
     }
 

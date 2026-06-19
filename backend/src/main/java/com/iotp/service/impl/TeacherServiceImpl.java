@@ -348,6 +348,7 @@ public class TeacherServiceImpl implements TeacherService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @SuppressWarnings("unchecked")
     public Map<String, Object> createCourse(Map<String, Object> courseData) {
         Long teacherId = UserContext.getUserId();
         String teacherName = UserContext.getUsername();
@@ -425,6 +426,7 @@ public class TeacherServiceImpl implements TeacherService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @SuppressWarnings("unchecked")
     public void updateCourse(Long courseId, Map<String, Object> courseData) {
         Long teacherId = UserContext.getUserId();
 
@@ -643,7 +645,11 @@ public class TeacherServiceImpl implements TeacherService {
         int updatedCount = 0;
 
         for (Map<String, Object> gradeEntry : grades) {
-            Long studentId = Long.valueOf(gradeEntry.get("studentId").toString());
+            Object studentIdObj = gradeEntry.get("studentId");
+            if (studentIdObj == null) {
+                throw new BusinessException(400, "studentId 不能为空");
+            }
+            Long studentId = Long.valueOf(studentIdObj.toString());
 
             // 查找现有成绩
             QueryWrapper<StudentGrade> existQw = new QueryWrapper<>();
@@ -733,10 +739,6 @@ public class TeacherServiceImpl implements TeacherService {
                 if (project == null || !taskType.equals(project.getProjectType())) {
                     continue;
                 }
-            }
-
-            if (courseId != null && project != null && !courseId.equals(project.getId())) {
-                // 这里 courseId 比较的是 experiment_project 中的关联课程，简化处理略过
             }
 
             SysClass sysClass = task.getClassId() != null ? sysClassMapper.selectById(task.getClassId()) : null;
