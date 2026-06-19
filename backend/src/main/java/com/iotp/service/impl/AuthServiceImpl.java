@@ -16,9 +16,6 @@ import java.util.*;
 
 /**
  * 认证服务实现
- *
- * @author 杨雨洁
- * @since 2026-06-18
  */
 @Service
 public class AuthServiceImpl implements AuthService {

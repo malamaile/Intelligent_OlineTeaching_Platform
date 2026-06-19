@@ -2,9 +2,6 @@ package com.iotp.enums;
 
 /**
  * 角色枚举
- *
- * @author 杨雨洁
- * @since 2026-06-18
  */
 public enum RoleEnum {
 

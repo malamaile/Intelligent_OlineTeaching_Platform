@@ -2,9 +2,6 @@ package com.iotp.enums;
 
 /**
  * 用户账号状态枚举
- *
- * @author 杨雨洁
- * @since 2026-06-18
  */
 public enum UserStatusEnum {
 

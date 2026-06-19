@@ -22,9 +22,6 @@ import java.util.stream.Collectors;
 
 /**
  * 教师端业务服务实现
- *
- * @author 杨雨洁
- * @since 2026-06-18
  */
 @Service
 public class TeacherServiceImpl implements TeacherService {

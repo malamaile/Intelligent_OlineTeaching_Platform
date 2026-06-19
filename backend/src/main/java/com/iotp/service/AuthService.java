@@ -5,9 +5,6 @@ import java.util.Map;
 /**
  * 认证服务接口
  * <p>提供登录、登出、密码重置、当前用户信息查询等认证相关功能。</p>
- *
- * @author 杨雨洁
- * @since 2026-06-18
  */
 public interface AuthService {
 

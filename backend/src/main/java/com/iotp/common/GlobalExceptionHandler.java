@@ -18,9 +18,6 @@ import java.util.Map;
 /**
  * 全局异常处理器
  * <p>统一捕获 Controller 层抛出的异常，转换为规范的 Result 响应</p>
- *
- * @author 杨雨洁
- * @since 2026-06-18
  */
 @RestControllerAdvice
 public class GlobalExceptionHandler {

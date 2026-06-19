@@ -11,9 +11,6 @@ import org.springframework.transaction.annotation.EnableTransactionManagement;
 /**
  * MyBatis-Plus 配置
  * <p>配置分页插件、SQL 性能分析插件等，同时启用声明式事务管理。</p>
- *
- * @author 杨雨洁
- * @since 2026-06-18
  */
 @Configuration
 @MapperScan("com.iotp.mapper")

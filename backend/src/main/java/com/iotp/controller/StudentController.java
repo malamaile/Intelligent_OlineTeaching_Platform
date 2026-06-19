@@ -22,9 +22,6 @@ import java.util.UUID;
  * 学生端控制器
  * <p>提供学生首页看板、课程学习、实验任务、教学资源、学情分析、成绩查询、
  * 消息通知等 RESTful API 接口。</p>
- *
- * @author 杨雨洁
- * @since 2026-06-18
  */
 @RestController
 @RequestMapping("/student")

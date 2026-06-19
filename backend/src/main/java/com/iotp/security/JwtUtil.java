@@ -15,9 +15,6 @@ import java.util.Map;
 /**
  * JWT 工具类
  * <p>用于生成和解析 JSON Web Token，基于 jjwt 0.9.1 实现</p>
- *
- * @author 杨雨洁
- * @since 2026-06-18
  */
 public class JwtUtil {
 

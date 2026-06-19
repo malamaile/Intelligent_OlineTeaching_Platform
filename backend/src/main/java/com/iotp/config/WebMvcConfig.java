@@ -11,9 +11,6 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 /**
  * Web MVC 配置
  * <p>注册拦截器、配置跨域（CORS）、静态资源映射等。</p>
- *
- * @author 杨雨洁
- * @since 2026-06-18
  */
 @Configuration
 public class WebMvcConfig implements WebMvcConfigurer {

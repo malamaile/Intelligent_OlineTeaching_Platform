@@ -15,9 +15,6 @@ import java.util.Map;
  * 教师端控制器
  * <p>提供教师首页看板、课程管理、实验任务管理、成绩管理、教学资源管理、
  * 学情分析、通知公告、消息通知等 RESTful API 接口。</p>
- *
- * @author 杨雨洁
- * @since 2026-06-18
  */
 @RestController
 @RequestMapping("/teacher")

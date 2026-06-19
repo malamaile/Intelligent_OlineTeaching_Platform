@@ -17,9 +17,6 @@ import java.util.Map;
  * 管理员端控制器
  * <p>提供用户管理、审核管理（课程/任务/资源）、系统设置、公告管理、
  * 全局学情分析等 RESTful API 接口。</p>
- *
- * @author 杨雨洁
- * @since 2026-06-18
  */
 @RestController
 @RequestMapping("/admin")

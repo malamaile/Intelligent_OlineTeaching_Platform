@@ -25,9 +25,6 @@ import java.util.stream.Collectors;
 
 /**
  * 学生端业务服务实现
- *
- * @author 杨雨洁
- * @since 2026-06-18
  */
 @Service
 public class StudentServiceImpl implements StudentService {

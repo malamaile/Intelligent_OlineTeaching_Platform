@@ -10,9 +10,6 @@ import java.util.Map;
  * 教师端业务服务接口
  * <p>提供教师首页看板、课程管理、实验任务管理、成绩管理、教学资源管理、
  * 学情分析、通知公告、消息管理等教师端功能。</p>
- *
- * @author 杨雨洁
- * @since 2026-06-18
  */
 public interface TeacherService {
 

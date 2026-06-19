@@ -21,9 +21,6 @@ import java.nio.charset.StandardCharsets;
  * 登录拦截器
  * <p>拦截所有需要登录认证的请求，从 Authorization 请求头中解析 JWT，
  * 校验通过后将用户信息设置到 Request 属性中，供后续 Controller 通过 UserContext 获取。</p>
- *
- * @author 杨雨洁
- * @since 2026-06-18
  */
 @Component
 public class LoginInterceptor implements HandlerInterceptor {

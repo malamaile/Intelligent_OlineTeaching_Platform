@@ -5,9 +5,6 @@ import java.io.Serializable;
 /**
  * 统一响应结果封装类
  * <p>所有API接口返回统一用此类包装，方便前端统一处理</p>
- *
- * @author 杨雨洁
- * @since 2026-06-18
  */
 public class Result<T> implements Serializable {
 

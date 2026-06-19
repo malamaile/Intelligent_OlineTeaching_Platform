@@ -12,9 +12,6 @@ import java.util.stream.Collectors;
 /**
  * 公共接口控制器
  * <p>提供院系列表、班级列表、学期列表、课程下拉列表、文件上传等公共接口</p>
- *
- * @author 杨雨洁
- * @since 2026-06-18
  */
 @RestController
 @RequestMapping("/common")

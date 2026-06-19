@@ -28,9 +28,6 @@ import java.util.stream.Collectors;
 
 /**
  * 管理员端业务服务实现
- *
- * @author 杨雨洁
- * @since 2026-06-18
  */
 @Service
 public class AdminServiceImpl implements AdminService {

@@ -2,9 +2,6 @@ package com.iotp.common;
 
 /**
  * 业务异常，统一由 GlobalExceptionHandler 拦截处理
- *
- * @author 杨雨洁
- * @since 2026-06-18
  */
 public class BusinessException extends RuntimeException {
 

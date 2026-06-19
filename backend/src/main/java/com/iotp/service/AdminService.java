@@ -11,9 +11,6 @@ import java.util.Map;
  * 管理员端业务服务接口
  * <p>提供用户管理、审核管理（课程/任务/资源）、系统设置、公告管理、
  * 全校学情分析等核心管理功能。</p>
- *
- * @author 杨雨洁
- * @since 2026-06-18
  */
 public interface AdminService {
 

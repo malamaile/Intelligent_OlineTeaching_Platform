@@ -5,12 +5,8 @@ package com.iotp.security;
  * <p>在 LoginInterceptor 中从解析后的 JWT 获取用户信息，
  * 设置到 ThreadLocal 中，业务层可通过此类的静态方法随时获取当前登录用户信息，
  * 避免在方法参数中层层传递。</p>
- *
  * <p><b>注意：</b>请求完成后务必调用 {@link #clear()} 方法清理 ThreadLocal，
  * 防止内存泄漏。已在 LoginInterceptor 的 afterCompletion 中自动清理。</p>
- *
- * @author 杨雨洁
- * @since 2026-06-18
  */
 public class UserContext {
 

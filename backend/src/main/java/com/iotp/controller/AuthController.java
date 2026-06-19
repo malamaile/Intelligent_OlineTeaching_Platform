@@ -12,9 +12,6 @@ import java.util.Map;
 /**
  * 认证控制器
  * <p>提供登录、登出、密码重置、当前用户信息查询等 RESTful 接口。</p>
- *
- * @author 杨雨洁
- * @since 2026-06-18
  */
 @RestController
 @RequestMapping("/auth")
