@@ -577,10 +577,9 @@ INSERT INTO sys_role (role_code, role_name, description) VALUES
 ('TEACHER',  '教师',   '教师用户，负责课程管理、实验实训、资源上传、学情统计'),
 ('STUDENT',  '学生',   '学生用户，负责课程学习、作业提交、资源浏览、学情查看');
 
--- 9.2 初始化默认管理员账号（密码：admin123，实际使用时需替换为加密后的密码）
--- 注意：生产环境中密码必须使用BCrypt/SM3等加密算法处理
+-- 9.2 初始化默认管理员账号（密码：admin123）
 INSERT INTO sys_user (username, password, real_name, role_id, status) VALUES
-('admin', '$2a$10$N.zmdr9k7uOCQb376NoUnuTJ8iAt6Z5EHsM8lE9lBOsl7iAt6Z5Eh', '系统管理员', 1, 1);
+('admin', 'admin123', '系统管理员', 1, 1);
 
 -- 9.3 初始化系统配置默认值
 INSERT INTO sys_config (config_key, config_value, description) VALUES

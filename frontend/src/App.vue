@@ -1,11 +1,16 @@
-<script setup></script>
+<script setup>
+import { computed } from 'vue'
+import { useRoute } from 'vue-router'
+import AppLayout from '@/components/AppLayout.vue'
+
+const route = useRoute()
+
+// 不需要 AppLayout 的页面（登录、注册、忘记密码、404）
+const publicPages = ['Login', 'Register', 'ForgotPassword', 'NotFound']
+const isPublicPage = computed(() => publicPages.includes(route.name))
+</script>
 
 <template>
-  <h1>You did it!</h1>
-  <p>
-    Visit <a href="https://vuejs.org/" target="_blank" rel="noopener">vuejs.org</a> to read the
-    documentation
-  </p>
+  <AppLayout v-if="!isPublicPage" />
+  <router-view v-else />
 </template>
-
-<style scoped></style>

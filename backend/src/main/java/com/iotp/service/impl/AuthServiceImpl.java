@@ -138,6 +138,7 @@ public class AuthServiceImpl implements AuthService {
         userInfo.put("account", user.getUsername());
         userInfo.put("userName", user.getRealName());
         userInfo.put("role", roleName);
+        userInfo.put("roleCode", (sysRole != null) ? sysRole.getRoleCode() : "");
         userInfo.put("avatar", user.getAvatar());
         userInfo.put("department", departmentName);
         userInfo.put("className", className);
@@ -346,6 +347,84 @@ public class AuthServiceImpl implements AuthService {
         sysUserMapper.updateById(user);
 
         log.info("用户 ID {} 密码修改成功", userId);
+    }
+
+    // ==================== 注册 ====================
+
+    @Override
+    public Map<String, Object> register(String account, String password, String userName,
+                                        String roleCode, String department, String className,
+                                        String email, String phone) {
+        // 1. 检查账号是否已存在
+        QueryWrapper<SysUser> queryWrapper = new QueryWrapper<>();
+        queryWrapper.eq("username", account);
+        SysUser existingUser = sysUserMapper.selectOne(queryWrapper);
+        if (existingUser != null) {
+            throw new BusinessException(400, "账号已存在");
+        }
+
+        // 2. 查找角色
+        QueryWrapper<SysRole> roleQuery = new QueryWrapper<>();
+        roleQuery.eq("role_code", roleCode);
+        SysRole sysRole = sysRoleMapper.selectOne(roleQuery);
+        if (sysRole == null) {
+            throw new BusinessException(400, "无效的角色类型");
+        }
+
+        // 3. 仅允许注册学生和教师账号
+        if (!"STUDENT".equals(roleCode) && !"TEACHER".equals(roleCode)) {
+            throw new BusinessException(400, "仅支持注册学生或教师账号");
+        }
+
+        // 4. 查找或创建院系
+        Long departmentId = null;
+        if (department != null && !department.isEmpty()) {
+            QueryWrapper<SysDepartment> deptQuery = new QueryWrapper<>();
+            deptQuery.eq("dept_name", department);
+            SysDepartment dept = sysDepartmentMapper.selectOne(deptQuery);
+            if (dept != null) {
+                departmentId = dept.getId();
+            }
+        }
+
+        // 5. 查找班级（学生必填）
+        Long classId = null;
+        if ("STUDENT".equals(roleCode) && className != null && !className.isEmpty()) {
+            QueryWrapper<SysClass> classQuery = new QueryWrapper<>();
+            classQuery.eq("class_name", className);
+            SysClass cls = sysClassMapper.selectOne(classQuery);
+            if (cls != null) {
+                classId = cls.getId();
+            }
+        }
+
+        // 6. 创建用户
+        SysUser user = new SysUser();
+        user.setUsername(account);
+        user.setPassword(password);
+        user.setRealName(userName);
+        user.setRoleId(sysRole.getId());
+        user.setDepartmentId(departmentId);
+        user.setClassId(classId);
+        user.setEmail(email);
+        user.setPhone(phone);
+        user.setStatus(STATUS_ACTIVE);
+        user.setLoginFailCount(0);
+        user.setCreateTime(LocalDateTime.now());
+        sysUserMapper.insert(user);
+
+        // 7. 构建返回信息
+        Map<String, Object> userInfo = new LinkedHashMap<>();
+        userInfo.put("userId", user.getId());
+        userInfo.put("account", user.getUsername());
+        userInfo.put("userName", user.getRealName());
+        userInfo.put("role", sysRole.getRoleName());
+        userInfo.put("roleCode", sysRole.getRoleCode());
+        userInfo.put("department", department);
+        userInfo.put("className", className);
+
+        log.info("新用户注册成功：{} (角色：{})", account, sysRole.getRoleName());
+        return userInfo;
     }
 
     // ==================== 私有工具方法 ====================

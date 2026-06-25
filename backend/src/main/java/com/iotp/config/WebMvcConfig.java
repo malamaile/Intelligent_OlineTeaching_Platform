@@ -28,6 +28,7 @@ public class WebMvcConfig implements WebMvcConfigurer {
                 // 放行不需要登录的接口
                 .excludePathPatterns(
                         "/auth/login",                         // 登录
+                        "/auth/register",                      // 注册
                         "/auth/forgot-password/verify",        // 忘记密码-验证身份
                         "/auth/forgot-password/reset"          // 忘记密码-重置密码
                 );
