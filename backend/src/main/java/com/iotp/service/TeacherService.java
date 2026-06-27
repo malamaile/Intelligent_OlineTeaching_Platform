@@ -264,4 +264,52 @@ public interface TeacherService {
      */
     Map<String, Object> getTeacherMessages(Integer page, Integer pageSize);
 
+    /**
+     * 标记单条消息已读
+     *
+     * @param messageId 消息 ID
+     */
+    void markMessageAsRead(Long messageId);
+
+    /**
+     * 标记所有消息已读
+     */
+    void markAllMessagesAsRead();
+
+    // ==================== 导出/上传辅助功能 ====================
+
+    /**
+     * 导出课程成绩为 Excel 文件
+     *
+     * @param courseId 课程 ID
+     * @return Excel 文件字节数组
+     */
+    byte[] exportGrades(Long courseId);
+
+    /**
+     * 上传实验任务指导文件（更新项目 guideFileUrl）
+     *
+     * @param taskId   任务 ID
+     * @param fileUrl  文件 URL
+     * @param fileName 文件名
+     */
+    void uploadGuideFile(Long taskId, String fileUrl, String fileName);
+
+    /**
+     * 获取教学资源审核反馈
+     *
+     * @param resourceId 资源 ID
+     * @return 包含审核日志列表和最新审核意见的 Map
+     */
+    Map<String, Object> getAuditFeedback(Long resourceId);
+
+    /**
+     * 导出学情分析为 Excel 文件
+     *
+     * @param classId  班级 ID（可选）
+     * @param semester 学期 ID（可选）
+     * @return Excel 文件字节数组
+     */
+    byte[] exportAnalytics(Long classId, Long semester);
+
 }

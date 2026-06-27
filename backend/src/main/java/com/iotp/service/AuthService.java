@@ -59,4 +59,21 @@ public interface AuthService {
      * @param newPassword 新密码
      */
     void changePassword(Long userId, String oldPassword, String newPassword);
+
+    /**
+     * 用户注册
+     *
+     * @param account   用户名（学号/工号）
+     * @param password  密码（明文）
+     * @param userName  真实姓名
+     * @param roleCode   角色编码：STUDENT / TEACHER
+     * @param department 院系名称
+     * @param className  班级名称（学生必填）
+     * @param email     邮箱（可选）
+     * @param phone     手机号（可选）
+     * @return 注册成功的用户信息
+     */
+    Map<String, Object> register(String account, String password, String userName,
+                                  String roleCode, String department, String className,
+                                  String email, String phone);
 }

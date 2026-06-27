@@ -14,9 +14,15 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -1789,6 +1795,335 @@ public class TeacherServiceImpl implements TeacherService {
         result.put("pageSize", msgPageResult.getSize());
 
         return result;
+    }
+
+    // ==================== 消息已读标记 ====================
+
+    @Override
+    public void markMessageAsRead(Long messageId) {
+        Long teacherId = UserContext.getUserId();
+
+        SysMessage message = sysMessageMapper.selectById(messageId);
+        if (message == null) {
+            throw new BusinessException(404, "消息不存在");
+        }
+        // 校验消息归属
+        if (!teacherId.equals(message.getReceiverId())) {
+            throw new BusinessException(403, "无权操作该消息");
+        }
+
+        message.setIsRead(1);
+        message.setReadTime(LocalDateTime.now());
+        sysMessageMapper.updateById(message);
+
+        log.info("教师 {} 标记消息 {} 为已读", teacherId, messageId);
+    }
+
+    @Override
+    public void markAllMessagesAsRead() {
+        Long teacherId = UserContext.getUserId();
+
+        // 查询所有未读消息
+        QueryWrapper<SysMessage> unreadQw = new QueryWrapper<>();
+        unreadQw.eq("receiver_id", teacherId)
+                .eq("is_read", 0);
+        List<SysMessage> unreadMessages = sysMessageMapper.selectList(unreadQw);
+
+        if (unreadMessages.isEmpty()) {
+            return;
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        for (SysMessage msg : unreadMessages) {
+            msg.setIsRead(1);
+            msg.setReadTime(now);
+            sysMessageMapper.updateById(msg);
+        }
+
+        log.info("教师 {} 将所有 {} 条消息标记为已读", teacherId, unreadMessages.size());
+    }
+
+    // ==================== 导出/上传辅助功能 ====================
+
+    @Override
+    public byte[] exportGrades(Long courseId) {
+        // 1. 查询课程信息
+        Course course = courseMapper.selectById(courseId);
+        if (course == null) {
+            throw new BusinessException(404, "课程不存在");
+        }
+
+        // 2. 获取 CoursePlan
+        QueryWrapper<CoursePlan> planQw = new QueryWrapper<>();
+        planQw.eq("course_id", courseId);
+        CoursePlan plan = coursePlanMapper.selectOne(planQw);
+        if (plan == null) {
+            throw new BusinessException(404, "开课计划不存在");
+        }
+
+        // 3. 查询该课程所有学生的成绩
+        QueryWrapper<StudentGrade> gradeQw = new QueryWrapper<>();
+        gradeQw.eq("course_plan_id", plan.getId());
+        List<StudentGrade> grades = studentGradeMapper.selectList(gradeQw);
+
+        // 4. 查询班级名称
+        String className = "";
+        if (plan.getClassId() != null) {
+            SysClass sysClass = sysClassMapper.selectById(plan.getClassId());
+            className = sysClass != null ? sysClass.getClassName() : "";
+        }
+
+        // 5. 使用 Apache POI 生成 Excel
+        try (Workbook workbook = new XSSFWorkbook()) {
+            Sheet sheet = workbook.createSheet(course.getCourseName() + " 成绩表");
+
+            // ---- 表头样式 ----
+            CellStyle headerStyle = workbook.createCellStyle();
+            Font headerFont = workbook.createFont();
+            headerFont.setBold(true);
+            headerStyle.setFont(headerFont);
+            headerStyle.setAlignment(HorizontalAlignment.CENTER);
+            headerStyle.setFillForegroundColor(IndexedColors.GREY_25_PERCENT.getIndex());
+            headerStyle.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+
+            // ---- 标题行 ----
+            Row titleRow = sheet.createRow(0);
+            Cell titleCell = titleRow.createCell(0);
+            titleCell.setCellValue(course.getCourseName() + " — 成绩表");
+            titleCell.setCellStyle(headerStyle);
+            sheet.addMergedRegion(new org.apache.poi.ss.util.CellRangeAddress(0, 0, 0, 7));
+
+            // 班级信息行
+            Row infoRow = sheet.createRow(1);
+            infoRow.createCell(0).setCellValue("班级：" + className);
+            infoRow.createCell(1).setCellValue("总人数：" + grades.size());
+
+            // ---- 表头 ----
+            Row headerRow = sheet.createRow(3);
+            String[] headers = {"序号", "学号", "姓名", "平时成绩", "考试成绩", "实验成绩", "最终成绩", "评语"};
+            for (int i = 0; i < headers.length; i++) {
+                Cell cell = headerRow.createCell(i);
+                cell.setCellValue(headers[i]);
+                cell.setCellStyle(headerStyle);
+            }
+
+            // ---- 数据行 ----
+            DateTimeFormatter dtf = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+            for (int i = 0; i < grades.size(); i++) {
+                StudentGrade grade = grades.get(i);
+                Row row = sheet.createRow(i + 4);
+
+                row.createCell(0).setCellValue(i + 1);
+
+                // 查询学生信息
+                SysUser student = sysUserMapper.selectById(grade.getStudentId());
+                row.createCell(1).setCellValue(student != null ? (student.getUsername() != null ? student.getUsername() : "") : "");
+                row.createCell(2).setCellValue(student != null ? (student.getRealName() != null ? student.getRealName() : "") : "");
+
+                row.createCell(3).setCellValue(grade.getUsualGrade() != null ? grade.getUsualGrade().doubleValue() : 0);
+                row.createCell(4).setCellValue(grade.getExamGrade() != null ? grade.getExamGrade().doubleValue() : 0);
+                row.createCell(5).setCellValue(grade.getExperimentGrade() != null ? grade.getExperimentGrade().doubleValue() : 0);
+                row.createCell(6).setCellValue(grade.getFinalGrade() != null ? grade.getFinalGrade().doubleValue() : 0);
+                row.createCell(7).setCellValue(grade.getGradeComment() != null ? grade.getGradeComment() : "");
+            }
+
+            // 自动调整列宽
+            for (int i = 0; i < headers.length; i++) {
+                sheet.autoSizeColumn(i);
+            }
+
+            // 写入字节数组
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            workbook.write(baos);
+            log.info("教师 {} 导出了课程 {} 的成绩，共 {} 条", UserContext.getUserId(), courseId, grades.size());
+            return baos.toByteArray();
+
+        } catch (IOException e) {
+            log.error("导出成绩 Excel 失败：{}", e.getMessage(), e);
+            throw new BusinessException(500, "导出失败：" + e.getMessage());
+        }
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void uploadGuideFile(Long taskId, String fileUrl, String fileName) {
+        Long teacherId = UserContext.getUserId();
+
+        ExperimentTask task = experimentTaskMapper.selectById(taskId);
+        if (task == null) {
+            throw new BusinessException(404, "实验任务不存在");
+        }
+
+        // 校验是否为该教师的任务
+        if (!teacherId.equals(task.getTeacherId())) {
+            throw new BusinessException(403, "无权操作该任务");
+        }
+
+        // 更新关联的项目指导文件
+        if (task.getProjectId() != null) {
+            ExperimentProject project = experimentProjectMapper.selectById(task.getProjectId());
+            if (project != null) {
+                project.setGuideFileUrl(fileUrl);
+                experimentProjectMapper.updateById(project);
+                log.info("教师 {} 为任务 {} 上传了指导文件：{}", teacherId, taskId, fileName);
+            }
+        }
+    }
+
+    @Override
+    public Map<String, Object> getAuditFeedback(Long resourceId) {
+        TeachingResource resource = teachingResourceMapper.selectById(resourceId);
+        if (resource == null) {
+            throw new BusinessException(404, "教学资源不存在");
+        }
+
+        // 查询该资源的所有审核日志
+        QueryWrapper<SysAuditLog> logQw = new QueryWrapper<>();
+        logQw.eq("biz_type", "RESOURCE")
+                .eq("biz_id", resourceId)
+                .orderByDesc("create_time");
+        List<SysAuditLog> auditLogs = sysAuditLogMapper.selectList(logQw);
+
+        List<Map<String, Object>> logList = new ArrayList<>();
+        DateTimeFormatter dtf = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+
+        for (SysAuditLog auditLog : auditLogs) {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("logId", auditLog.getId());
+            item.put("action", auditLog.getAction());
+            item.put("operatorName", auditLog.getOperatorName());
+            item.put("beforeStatus", auditLog.getBeforeStatus());
+            item.put("afterStatus", auditLog.getAfterStatus());
+            item.put("comment", auditLog.getComment());
+            item.put("createTime", auditLog.getCreateTime() != null
+                    ? auditLog.getCreateTime().format(dtf) : null);
+            logList.add(item);
+        }
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("resourceId", resourceId);
+        result.put("resourceName", resource.getResourceName());
+        result.put("currentStatus", resource.getAuditStatus());
+        result.put("auditComment", resource.getAuditComment());
+        result.put("auditLogs", logList);
+
+        return result;
+    }
+
+    @Override
+    public byte[] exportAnalytics(Long classId, Long semester) {
+        // 复用 getClassOverview 的数据，然后写入 Excel
+        Map<String, Object> overview = getClassOverview(classId, semester);
+
+        try (Workbook workbook = new XSSFWorkbook()) {
+            Sheet sheet = workbook.createSheet("学情分析报表");
+
+            // ---- 样式 ----
+            CellStyle headerStyle = workbook.createCellStyle();
+            Font headerFont = workbook.createFont();
+            headerFont.setBold(true);
+            headerStyle.setFont(headerFont);
+            headerStyle.setAlignment(HorizontalAlignment.CENTER);
+            headerStyle.setFillForegroundColor(IndexedColors.GREY_25_PERCENT.getIndex());
+            headerStyle.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+
+            CellStyle labelStyle = workbook.createCellStyle();
+            Font labelFont = workbook.createFont();
+            labelFont.setBold(true);
+            labelStyle.setFont(labelFont);
+
+            int rowIdx = 0;
+
+            // ---- 概览信息 ----
+            Row titleRow = sheet.createRow(rowIdx++);
+            Cell titleCell = titleRow.createCell(0);
+            titleCell.setCellValue("班级学情分析报表");
+            titleCell.setCellStyle(headerStyle);
+            sheet.addMergedRegion(new org.apache.poi.ss.util.CellRangeAddress(0, 0, 0, 3));
+            rowIdx++;
+
+            Row totalRow = sheet.createRow(rowIdx++);
+            totalRow.createCell(0).setCellValue("总学生数");
+            totalRow.getCell(0).setCellStyle(labelStyle);
+            totalRow.createCell(1).setCellValue(((Number) overview.get("totalStudents")).doubleValue());
+
+            Row completeRow = sheet.createRow(rowIdx++);
+            completeRow.createCell(0).setCellValue("平均完成率");
+            completeRow.getCell(0).setCellStyle(labelStyle);
+            completeRow.createCell(1).setCellValue(((BigDecimal) overview.get("avgCompletionRate")).doubleValue() + "%");
+
+            Row scoreRow = sheet.createRow(rowIdx++);
+            scoreRow.createCell(0).setCellValue("平均分");
+            scoreRow.getCell(0).setCellStyle(labelStyle);
+            scoreRow.createCell(1).setCellValue(((BigDecimal) overview.get("avgScore")).doubleValue());
+
+            rowIdx++;
+
+            // ---- 等级分布 ----
+            @SuppressWarnings("unchecked")
+            Map<String, Object> levelDist = (Map<String, Object>) overview.get("levelDistribution");
+            if (levelDist != null) {
+                Row levelHeader = sheet.createRow(rowIdx++);
+                levelHeader.createCell(0).setCellValue("等级分布");
+                levelHeader.getCell(0).setCellStyle(headerStyle);
+                sheet.addMergedRegion(new org.apache.poi.ss.util.CellRangeAddress(rowIdx - 1, rowIdx - 1, 0, 1));
+
+                Row excellentRow = sheet.createRow(rowIdx++);
+                excellentRow.createCell(0).setCellValue("优秀 (≥90)");
+                excellentRow.createCell(1).setCellValue(levelDist.get("excellent") != null
+                        ? ((Number) levelDist.get("excellent")).doubleValue() : 0);
+
+                Row goodRow = sheet.createRow(rowIdx++);
+                goodRow.createCell(0).setCellValue("良好 (≥80)");
+                goodRow.createCell(1).setCellValue(levelDist.get("good") != null
+                        ? ((Number) levelDist.get("good")).doubleValue() : 0);
+
+                Row improveRow = sheet.createRow(rowIdx++);
+                improveRow.createCell(0).setCellValue("待提升 (<80)");
+                improveRow.createCell(1).setCellValue(levelDist.get("needImprove") != null
+                        ? ((Number) levelDist.get("needImprove")).doubleValue() : 0);
+            }
+
+            rowIdx++;
+
+            // ---- 课程排名 ----
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> courseRanking = (List<Map<String, Object>>) overview.get("courseRanking");
+            if (courseRanking != null && !courseRanking.isEmpty()) {
+                Row rankHeader = sheet.createRow(rowIdx++);
+                String[] rankHeaders = {"排名", "课程名称", "平均分", "学生数"};
+                for (int i = 0; i < rankHeaders.length; i++) {
+                    Cell cell = rankHeader.createCell(i);
+                    cell.setCellValue(rankHeaders[i]);
+                    cell.setCellStyle(headerStyle);
+                }
+
+                for (int i = 0; i < courseRanking.size(); i++) {
+                    Map<String, Object> cr = courseRanking.get(i);
+                    Row row = sheet.createRow(rowIdx++);
+                    row.createCell(0).setCellValue(i + 1);
+                    row.createCell(1).setCellValue(cr.get("courseName") != null ? cr.get("courseName").toString() : "");
+                    row.createCell(2).setCellValue(cr.get("avgScore") != null
+                            ? ((BigDecimal) cr.get("avgScore")).doubleValue() : 0);
+                    row.createCell(3).setCellValue(cr.get("studentCount") != null
+                            ? ((Number) cr.get("studentCount")).doubleValue() : 0);
+                }
+            }
+
+            // 自动调整列宽
+            for (int i = 0; i < 4; i++) {
+                sheet.autoSizeColumn(i);
+            }
+
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            workbook.write(baos);
+            log.info("教师 {} 导出了学情分析报表", UserContext.getUserId());
+            return baos.toByteArray();
+
+        } catch (IOException e) {
+            log.error("导出学情分析 Excel 失败：{}", e.getMessage(), e);
+            throw new BusinessException(500, "导出失败：" + e.getMessage());
+        }
     }
 
     // ==================== 私有辅助方法 ====================

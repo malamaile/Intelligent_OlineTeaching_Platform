@@ -12,6 +12,12 @@ import java.util.Map;
 /**
  * 认证控制器
  * <p>提供登录、登出、密码重置、当前用户信息查询等 RESTful 接口。</p>
+ * {
+ *   "code": 200,
+ *   "message": "操作成功",
+ *   "data": {},
+ *   "timestamp": 1719200000000
+ * }
  */
 @RestController
 @RequestMapping("/auth")
@@ -22,6 +28,29 @@ public class AuthController {
 
     /** Authorization 请求头前缀 */
     private static final String BEARER_PREFIX = "Bearer ";
+
+    // ==================== 注册 ====================
+
+    /**
+     * 用户注册
+     *
+     * POST /auth/register
+     */
+    @PostMapping("/register")
+    public Result<Map<String, Object>> register(@RequestBody Map<String, String> body) {
+        String account = body.get("account");
+        String password = body.get("password");
+        String userName = body.get("userName");
+        String role = body.get("role");
+        String department = body.get("department");
+        String className = body.get("className");
+        String email = body.get("email");
+        String phone = body.get("phone");
+
+        Map<String, Object> data = authService.register(account, password, userName,
+                role, department, className, email, phone);
+        return Result.ok("注册成功，请使用账号登录", data);
+    }
 
     // ==================== 登录 ====================
 
