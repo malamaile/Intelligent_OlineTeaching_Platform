@@ -40,14 +40,25 @@ async function handleSaveProfile() {
 
 // ---- 头像上传 ----
 const uploadingAvatar = ref(false)
-async function handleAvatarChange(file) {
+async function handleAvatarChange(options) {
   uploadingAvatar.value = true
   try {
+    const file = options.file
+    // 立刻显示本地预览（不依赖服务端）
+    const localPreview = URL.createObjectURL(file)
+    userStore.userInfo.avatar = localPreview
+    // 上传到服务端
     const formData = new FormData()
-    formData.append('avatar', file.raw)
+    formData.append('file', file)
     const res = await uploadAvatar(formData)
-    userStore.userInfo.avatar = res.data.avatarUrl
+    const avatarUrl = res.data.avatarUrl
+    // 用服务端 URL 替换本地预览
+    userStore.userInfo.avatar = avatarUrl
     ElMessage.success('头像上传成功')
+    // 异步持久化到服务端
+    updateProfile({ avatar: avatarUrl }).catch(() => {})
+  } catch (err) {
+    // 上传失败已在拦截器中提示
   } finally {
     uploadingAvatar.value = false
   }

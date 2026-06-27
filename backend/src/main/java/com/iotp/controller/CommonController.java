@@ -4,8 +4,16 @@ import com.iotp.common.Result;
 import com.iotp.entity.*;
 import com.iotp.mapper.*;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.io.Resource;
+import org.springframework.core.io.UrlResource;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import javax.servlet.http.HttpServletRequest;
+import java.net.MalformedURLException;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -180,12 +188,50 @@ public class CommonController {
             data.put("fileId", System.currentTimeMillis()); // 简化处理，实际应存储文件记录
             data.put("fileName", originalName);
             data.put("fileSize", file.getSize());
-            data.put("fileUrl", "/" + fullPath);
+            data.put("fileUrl", "/api/v1/common/files/" + module + "/" + yearMonth + "/" + uniqueName);
             data.put("uploadTime", new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date()));
 
             return Result.ok("上传成功", data);
         } catch (Exception e) {
             return Result.serverError("文件上传失败：" + e.getMessage());
         }
+    }
+
+    /**
+     * 6.7 访问上传的文件（头像、课件等）
+     * <p>通过 URL 路径直接访问 uploads 目录下的文件，支持多级子目录</p>
+     * GET /common/files/**  → 映射到 uploads/**
+     */
+    @GetMapping("/files/**")
+    public ResponseEntity<Resource> serveFile(HttpServletRequest request) throws MalformedURLException {
+        // 提取 /common/files/ 之后的路径部分（如 avatars/uuid.jpg）
+        String requestURI = request.getRequestURI();
+        String contextPath = request.getContextPath();
+        String path = requestURI.substring(contextPath.length());
+        String prefix = "/common/files/";
+        if (!path.startsWith(prefix)) {
+            return ResponseEntity.notFound().build();
+        }
+        String relativePath = path.substring(prefix.length());
+
+        Path filePath = Paths.get("uploads", relativePath);
+        Resource resource = new UrlResource(filePath.toUri());
+        if (resource.exists() && resource.isReadable()) {
+            String contentType = "application/octet-stream";
+            String name = relativePath.toLowerCase();
+            if (name.endsWith(".jpg") || name.endsWith(".jpeg")) {
+                contentType = "image/jpeg";
+            } else if (name.endsWith(".png")) {
+                contentType = "image/png";
+            } else if (name.endsWith(".gif")) {
+                contentType = "image/gif";
+            } else if (name.endsWith(".pdf")) {
+                contentType = "application/pdf";
+            }
+            return ResponseEntity.ok()
+                    .contentType(MediaType.parseMediaType(contentType))
+                    .body(resource);
+        }
+        return ResponseEntity.notFound().build();
     }
 }

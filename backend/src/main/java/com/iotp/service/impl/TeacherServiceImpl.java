@@ -104,7 +104,7 @@ public class TeacherServiceImpl implements TeacherService {
         Long teacherId = UserContext.getUserId();
 
         // 1. 待批阅统计：查询该教师发布的实验任务，统计学生提交状态为 SUBMITTED 的记录
-        Map<String, Object> pendingReview = new LinkedHashMap<>();
+        Map<String, Object> pendingReviews = new LinkedHashMap<>();
 
         // 1.1 查询该教师所有的实验任务 ID
         QueryWrapper<ExperimentTask> taskQw = new QueryWrapper<>();
@@ -112,8 +112,8 @@ public class TeacherServiceImpl implements TeacherService {
         List<ExperimentTask> myTasks = experimentTaskMapper.selectList(taskQw);
         Set<Long> taskIds = myTasks.stream().map(ExperimentTask::getId).collect(Collectors.toSet());
 
-        long experimentPending = 0; // 实验待批阅
-        long trainingPending = 0;   // 实训待批阅
+        long experiments = 0; // 实验待批阅
+        long trainings = 0;   // 实训待批阅
 
         if (!taskIds.isEmpty()) {
             // 查询所有提交状态为 SUBMITTED 的记录
@@ -128,71 +128,77 @@ public class TeacherServiceImpl implements TeacherService {
                 if (task != null) {
                     ExperimentProject project = experimentProjectMapper.selectById(task.getProjectId());
                     if (project != null && "TRAINING".equals(project.getProjectType())) {
-                        trainingPending++;
+                        trainings++;
                     } else {
-                        experimentPending++;
+                        experiments++;
                     }
                 }
             }
         }
 
-        pendingReview.put("experimentPending", experimentPending);
-        pendingReview.put("trainingPending", trainingPending);
+        pendingReviews.put("experiments", experiments);
+        pendingReviews.put("trainings", trainings);
+        pendingReviews.put("total", experiments + trainings);
 
         // 2. 待审核统计：课程 / 实验任务 / 教学资源
-        Map<String, Object> pendingAudit = new LinkedHashMap<>();
+        Map<String, Object> pendingAudits = new LinkedHashMap<>();
 
         // 2.1 待审核开课计划
         QueryWrapper<CoursePlan> planAuditQw = new QueryWrapper<>();
         planAuditQw.eq("teacher_id", teacherId)
                 .eq("audit_status", AUDIT_PENDING);
         long pendingCoursePlans = coursePlanMapper.selectCount(planAuditQw);
-        pendingAudit.put("pendingCoursePlans", pendingCoursePlans);
+        pendingAudits.put("courses", pendingCoursePlans);
 
         // 2.2 待审核实验任务
         QueryWrapper<ExperimentTask> taskAuditQw = new QueryWrapper<>();
         taskAuditQw.eq("teacher_id", teacherId)
                 .eq("audit_status", AUDIT_PENDING);
-        long pendingTasks = experimentTaskMapper.selectCount(taskAuditQw);
-        pendingAudit.put("pendingTasks", pendingTasks);
+        long pendingTasksCount = experimentTaskMapper.selectCount(taskAuditQw);
+        pendingAudits.put("tasks", pendingTasksCount);
 
         // 2.3 待审核教学资源
         QueryWrapper<TeachingResource> resAuditQw = new QueryWrapper<>();
         resAuditQw.eq("teacher_id", teacherId)
                 .eq("audit_status", AUDIT_PENDING);
-        long pendingResources = teachingResourceMapper.selectCount(resAuditQw);
-        pendingAudit.put("pendingResources", pendingResources);
+        long pendingResourcesCount = teachingResourceMapper.selectCount(resAuditQw);
+        pendingAudits.put("resources", pendingResourcesCount);
+        pendingAudits.put("total", pendingCoursePlans + pendingTasksCount + pendingResourcesCount);
 
-        // 3. 预警学生（简化实现：统计有未提交任务的学生）
+        // 3. 预警学生（按学生聚合，统计缺失任务数）
         List<Map<String, Object>> atRiskStudents = new ArrayList<>();
         if (!taskIds.isEmpty()) {
-            // 查询所有有提交记录的任务，找到未提交的学生
+            // 按学生ID聚合缺失任务数
+            Map<Long, Map<String, Object>> studentRiskMap = new LinkedHashMap<>();
             for (ExperimentTask task : myTasks) {
                 if (task.getClassId() == null) continue;
 
-                // 查询该班级所有学生
                 QueryWrapper<SysUser> studentQw = new QueryWrapper<>();
                 studentQw.eq("class_id", task.getClassId());
                 List<SysUser> students = sysUserMapper.selectList(studentQw);
 
                 for (SysUser student : students) {
-                    // 检查该学生是否提交了该任务
                     QueryWrapper<StudentExperimentSubmission> checkSub = new QueryWrapper<>();
                     checkSub.eq("task_id", task.getId())
                             .eq("student_id", student.getId());
                     StudentExperimentSubmission sub = submissionMapper.selectOne(checkSub);
 
                     if (sub == null || SUBMIT_RETURNED.equals(sub.getStatus())) {
-                        // 未提交或退回，视为预警
-                        Map<String, Object> risk = new LinkedHashMap<>();
-                        risk.put("studentId", student.getId());
-                        risk.put("studentName", student.getRealName() != null ? student.getRealName() : student.getUsername());
-                        risk.put("reason", sub == null ? "未提交实验任务" : "实验任务被退回");
-                        risk.put("taskId", task.getId());
-                        atRiskStudents.add(risk);
+                        Map<String, Object> risk = studentRiskMap.get(student.getId());
+                        if (risk == null) {
+                            risk = new LinkedHashMap<>();
+                            risk.put("userId", student.getId());
+                            risk.put("userName", student.getRealName() != null ? student.getRealName() : student.getUsername());
+                            risk.put("className", getClassName(student.getClassId()));
+                            risk.put("missedTasks", 0);
+                            studentRiskMap.put(student.getId(), risk);
+                        }
+                        risk.put("missedTasks", (int) risk.get("missedTasks") + 1);
+                        risk.put("reason", "有 " + risk.get("missedTasks") + " 个实验任务未提交或已被退回");
                     }
                 }
             }
+            atRiskStudents = new ArrayList<>(studentRiskMap.values());
             // 限制最大条数
             if (atRiskStudents.size() > 10) {
                 atRiskStudents = atRiskStudents.subList(0, 10);
@@ -209,16 +215,22 @@ public class TeacherServiceImpl implements TeacherService {
         for (SysMessage msg : messages) {
             Map<String, Object> item = new LinkedHashMap<>();
             item.put("id", msg.getId());
+            // 消息类型映射
+            String msgType = msg.getMessageType();
+            if ("GRADE".equals(msgType) || "AUDIT_RESULT".equals(msgType)) {
+                item.put("type", "AUDIT_RESULT");
+            } else {
+                item.put("type", "SYSTEM");
+            }
             item.put("title", msg.getTitle());
             item.put("content", msg.getContent());
             item.put("isRead", msg.getIsRead());
-            item.put("time", msg.getCreateTime());
+            item.put("publishTime", msg.getCreateTime());
             notifications.add(item);
         }
 
         // 5. 班级概况
         Map<String, Object> classSummary = new LinkedHashMap<>();
-        // 查询该教师负责的班级（通过开课计划）
         QueryWrapper<CoursePlan> myPlanQw = new QueryWrapper<>();
         myPlanQw.eq("teacher_id", teacherId)
                 .eq("audit_status", AUDIT_APPROVED);
@@ -234,12 +246,10 @@ public class TeacherServiceImpl implements TeacherService {
         int scoreCount = 0;
 
         if (!classIds.isEmpty()) {
-            // 统计班级总学生数
             QueryWrapper<SysUser> stuQw = new QueryWrapper<>();
             stuQw.in("class_id", classIds);
             totalStudents = sysUserMapper.selectCount(stuQw);
 
-            // 统计平均完成率（从选课记录）
             List<StudentCourseEnrollment> allEnrollments = new ArrayList<>();
             for (CoursePlan plan : myPlans) {
                 QueryWrapper<StudentCourseEnrollment> enrollQw = new QueryWrapper<>();
@@ -253,7 +263,6 @@ public class TeacherServiceImpl implements TeacherService {
                 avgCompletionRate = sumProgress.divide(BigDecimal.valueOf(allEnrollments.size()), 2, RoundingMode.HALF_UP);
             }
 
-            // 统计平均分
             for (CoursePlan plan : myPlans) {
                 QueryWrapper<StudentGrade> gradeQw = new QueryWrapper<>();
                 gradeQw.eq("course_plan_id", plan.getId())
@@ -278,8 +287,8 @@ public class TeacherServiceImpl implements TeacherService {
 
         // 组装结果
         Map<String, Object> result = new LinkedHashMap<>();
-        result.put("pendingReview", pendingReview);
-        result.put("pendingAudit", pendingAudit);
+        result.put("pendingReviews", pendingReviews);
+        result.put("pendingAudits", pendingAudits);
         result.put("atRiskStudents", atRiskStudents);
         result.put("notifications", notifications);
         result.put("classSummary", classSummary);
@@ -325,6 +334,33 @@ public class TeacherServiceImpl implements TeacherService {
             SysClass sysClass = plan.getClassId() != null ? sysClassMapper.selectById(plan.getClassId()) : null;
             SysSemester sem = plan.getSemesterId() != null ? sysSemesterMapper.selectById(plan.getSemesterId()) : null;
 
+            // 查询该计划的学生数和平均进度
+            QueryWrapper<StudentCourseEnrollment> enrollCountQw = new QueryWrapper<>();
+            enrollCountQw.eq("course_plan_id", plan.getId());
+            List<StudentCourseEnrollment> enrollments = enrollmentMapper.selectList(enrollCountQw);
+            long studentCount = enrollments.size();
+            BigDecimal progress = BigDecimal.ZERO;
+            if (!enrollments.isEmpty()) {
+                BigDecimal sum = enrollments.stream()
+                        .map(e -> e.getProgressPercent() != null ? e.getProgressPercent() : BigDecimal.ZERO)
+                        .reduce(BigDecimal.ZERO, BigDecimal::add);
+                progress = sum.divide(BigDecimal.valueOf(enrollments.size()), 2, RoundingMode.HALF_UP);
+            }
+
+            // 从 scheduleInfo 解析课时信息
+            int totalHours = 48;
+            int weeklyHours = 4;
+            if (plan.getScheduleInfo() != null) {
+                try {
+                    com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+                    Map<String, Object> si = mapper.readValue(plan.getScheduleInfo(), Map.class);
+                    if (si != null) {
+                        if (si.get("totalHours") != null) totalHours = Integer.parseInt(si.get("totalHours").toString());
+                        if (si.get("weeklyHours") != null) weeklyHours = Integer.parseInt(si.get("weeklyHours").toString());
+                    }
+                } catch (Exception ignored) {}
+            }
+
             Map<String, Object> courseMap = new LinkedHashMap<>();
             courseMap.put("planId", plan.getId());
             courseMap.put("courseId", course.getId());
@@ -334,13 +370,18 @@ public class TeacherServiceImpl implements TeacherService {
             courseMap.put("coverImage", course.getCoverImage());
             courseMap.put("departmentId", course.getDepartmentId());
             courseMap.put("semesterId", plan.getSemesterId());
-            courseMap.put("semesterName", sem != null ? sem.getSemesterName() : "");
+            courseMap.put("semester", sem != null ? sem.getSemesterName() : "");
             courseMap.put("classId", plan.getClassId());
             courseMap.put("className", sysClass != null ? sysClass.getClassName() : "");
             courseMap.put("scheduleInfo", plan.getScheduleInfo());
             courseMap.put("auditStatus", plan.getAuditStatus());
             courseMap.put("auditComment", plan.getAuditComment());
             courseMap.put("createTime", plan.getCreateTime());
+            courseMap.put("studentCount", studentCount);
+            courseMap.put("totalHours", totalHours);
+            courseMap.put("weeklyHours", weeklyHours);
+            courseMap.put("completedHours", (int) (totalHours * progress.doubleValue() / 100));
+            courseMap.put("progress", progress.intValue());
 
             courseList.add(courseMap);
         }
@@ -377,14 +418,40 @@ public class TeacherServiceImpl implements TeacherService {
         // 2. 创建 CoursePlan
         CoursePlan plan = new CoursePlan();
         plan.setCourseId(course.getId());
-        if (courseData.containsKey("semesterId")) {
-            plan.setSemesterId(Long.valueOf(courseData.get("semesterId").toString()));
+
+        // 兼容前端字段名：semester(学期名称字符串) / semesterId(Long)
+        Object semesterVal = readInputField(courseData, "semester", "semesterId");
+        if (semesterVal instanceof String) {
+            plan.setSemesterId(resolveSemesterId((String) semesterVal));
+        } else if (semesterVal != null) {
+            plan.setSemesterId(Long.valueOf(semesterVal.toString()));
         }
-        if (courseData.containsKey("classId")) {
-            plan.setClassId(Long.valueOf(courseData.get("classId").toString()));
+
+        // 兼容前端字段名：className(班级名称字符串) / classId(Long)
+        Object classVal = readInputField(courseData, "className", "classId");
+        if (classVal instanceof String) {
+            plan.setClassId(resolveClassId((String) classVal));
+        } else if (classVal != null) {
+            plan.setClassId(Long.valueOf(classVal.toString()));
         }
+
         plan.setTeacherId(teacherId);
-        plan.setScheduleInfo((String) courseData.get("scheduleInfo"));
+
+        // 如果前端没有传 scheduleInfo，则从 totalHours/weeklyHours/startDate/endDate 构建 JSON
+        String scheduleInfo = (String) courseData.get("scheduleInfo");
+        if (scheduleInfo == null) {
+            try {
+                Map<String, Object> si = new LinkedHashMap<>();
+                if (courseData.containsKey("totalHours")) si.put("totalHours", courseData.get("totalHours"));
+                if (courseData.containsKey("weeklyHours")) si.put("weeklyHours", courseData.get("weeklyHours"));
+                if (courseData.containsKey("startDate")) si.put("startDate", courseData.get("startDate"));
+                if (courseData.containsKey("endDate")) si.put("endDate", courseData.get("endDate"));
+                if (!si.isEmpty()) {
+                    scheduleInfo = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(si);
+                }
+            } catch (Exception ignored) {}
+        }
+        plan.setScheduleInfo(scheduleInfo);
         plan.setAuditStatus(AUDIT_PENDING);
 
         coursePlanMapper.insert(plan);
@@ -471,12 +538,22 @@ public class TeacherServiceImpl implements TeacherService {
         planQw.eq("course_id", courseId);
         CoursePlan plan = coursePlanMapper.selectOne(planQw);
         if (plan != null) {
-            if (courseData.containsKey("semesterId")) {
-                plan.setSemesterId(Long.valueOf(courseData.get("semesterId").toString()));
+            // 兼容前端字段名：semester(学期名称字符串) / semesterId(Long)
+            Object semVal = readInputField(courseData, "semester", "semesterId");
+            if (semVal instanceof String) {
+                plan.setSemesterId(resolveSemesterId((String) semVal));
+            } else if (semVal != null) {
+                plan.setSemesterId(Long.valueOf(semVal.toString()));
             }
-            if (courseData.containsKey("classId")) {
-                plan.setClassId(Long.valueOf(courseData.get("classId").toString()));
+
+            // 兼容前端字段名：className(班级名称字符串) / classId(Long)
+            Object clsVal = readInputField(courseData, "className", "classId");
+            if (clsVal instanceof String) {
+                plan.setClassId(resolveClassId((String) clsVal));
+            } else if (clsVal != null) {
+                plan.setClassId(Long.valueOf(clsVal.toString()));
             }
+
             if (courseData.containsKey("scheduleInfo")) {
                 plan.setScheduleInfo((String) courseData.get("scheduleInfo"));
             }
@@ -590,7 +667,7 @@ public class TeacherServiceImpl implements TeacherService {
 
                 Map<String, Object> sp = new LinkedHashMap<>();
                 sp.put("studentId", student.getId());
-                sp.put("studentName", student.getRealName() != null ? student.getRealName() : student.getUsername());
+                sp.put("userName", student.getRealName() != null ? student.getRealName() : student.getUsername());
                 sp.put("progress", enrollment.getProgressPercent());
                 sp.put("isCompleted", enrollment.getIsCompleted());
                 sp.put("lastStudyTime", lastLp != null ? lastLp.getLastWatchTime() : null);
@@ -631,6 +708,7 @@ public class TeacherServiceImpl implements TeacherService {
         result.put("totalChapters", chapters.size());
         result.put("chapterProgress", chapterProgressList);
         result.put("studentProgress", studentProgressList);
+        result.put("students", studentProgressList);  // 前端成绩弹窗读取的别名
 
         return result;
     }
@@ -749,18 +827,54 @@ public class TeacherServiceImpl implements TeacherService {
 
             SysClass sysClass = task.getClassId() != null ? sysClassMapper.selectById(task.getClassId()) : null;
 
+            // 尝试通过 classId + teacherId 反查关联的课程
+            String courseName = "";
+            if (task.getClassId() != null) {
+                QueryWrapper<CoursePlan> coursePlanQw = new QueryWrapper<>();
+                coursePlanQw.eq("class_id", task.getClassId())
+                        .eq("teacher_id", teacherId)
+                        .last("LIMIT 1");
+                CoursePlan relatedPlan = coursePlanMapper.selectOne(coursePlanQw);
+                if (relatedPlan != null) {
+                    Course relatedCourse = courseMapper.selectById(relatedPlan.getCourseId());
+                    courseName = relatedCourse != null ? relatedCourse.getCourseName() : "";
+                }
+            }
+
+            // 查询学生数和提交统计
+            long studentCount = 0;
+            long submittedCount = 0;
+            long gradedCount = 0;
+            if (task.getClassId() != null) {
+                QueryWrapper<SysUser> stuCountQw = new QueryWrapper<>();
+                stuCountQw.eq("class_id", task.getClassId());
+                studentCount = sysUserMapper.selectCount(stuCountQw);
+
+                QueryWrapper<StudentExperimentSubmission> subCountQw = new QueryWrapper<>();
+                subCountQw.eq("task_id", task.getId());
+                List<StudentExperimentSubmission> allSubs = submissionMapper.selectList(subCountQw);
+                for (StudentExperimentSubmission s : allSubs) {
+                    if (SUBMIT_SUBMITTED.equals(s.getStatus())) submittedCount++;
+                    if (SUBMIT_GRADED.equals(s.getStatus())) gradedCount++;
+                }
+            }
+
             Map<String, Object> taskMap = new LinkedHashMap<>();
             taskMap.put("taskId", task.getId());
             taskMap.put("projectId", task.getProjectId());
-            taskMap.put("projectName", project != null ? project.getProjectName() : "");
-            taskMap.put("projectType", project != null ? project.getProjectType() : "");
+            taskMap.put("title", project != null ? project.getProjectName() : "");
+            taskMap.put("taskType", project != null ? project.getProjectType() : "");
             taskMap.put("description", project != null ? project.getDescription() : "");
+            taskMap.put("courseName", courseName);
             taskMap.put("classId", task.getClassId());
             taskMap.put("className", sysClass != null ? sysClass.getClassName() : "");
             taskMap.put("startTime", task.getStartTime());
             taskMap.put("endTime", task.getEndTime());
             taskMap.put("status", task.getStatus());
             taskMap.put("auditStatus", task.getAuditStatus());
+            taskMap.put("studentCount", studentCount);
+            taskMap.put("submittedCount", submittedCount);
+            taskMap.put("gradedCount", gradedCount);
 
             taskList.add(taskMap);
         }
@@ -780,9 +894,12 @@ public class TeacherServiceImpl implements TeacherService {
 
         // 1. 创建实验项目
         ExperimentProject project = new ExperimentProject();
-        project.setProjectName((String) taskData.get("projectName"));
+        // 兼容前端字段名：title→projectName, taskType→projectType
+        String pName = (String) readInputField(taskData, "title", "projectName");
+        project.setProjectName(pName != null ? pName : (String) taskData.get("projectName"));
         project.setDescription((String) taskData.get("description"));
-        project.setProjectType((String) taskData.get("projectType"));
+        String pType = (String) readInputField(taskData, "taskType", "projectType");
+        project.setProjectType(pType != null ? pType : (String) taskData.get("projectType"));
         project.setTeacherId(teacherId);
         project.setGuideFileUrl((String) taskData.get("guideFileUrl"));
         project.setAuditStatus(AUDIT_PENDING);
@@ -792,8 +909,12 @@ public class TeacherServiceImpl implements TeacherService {
         // 2. 创建实验任务
         ExperimentTask task = new ExperimentTask();
         task.setProjectId(project.getId());
-        if (taskData.containsKey("classId")) {
-            task.setClassId(Long.valueOf(taskData.get("classId").toString()));
+        // 兼容前端字段名：className(班级名称字符串) / classId(Long)
+        Object clsVal = readInputField(taskData, "className", "classId");
+        if (clsVal instanceof String) {
+            task.setClassId(resolveClassId((String) clsVal));
+        } else if (clsVal != null) {
+            task.setClassId(Long.valueOf(clsVal.toString()));
         }
         task.setTeacherId(teacherId);
         task.setStartTime(taskData.get("startTime") != null
@@ -843,8 +964,12 @@ public class TeacherServiceImpl implements TeacherService {
         }
 
         // 更新任务信息
-        if (taskData.containsKey("classId")) {
-            task.setClassId(Long.valueOf(taskData.get("classId").toString()));
+        // 兼容前端字段名：className(班级名称字符串) / classId(Long)
+        Object clsVal = readInputField(taskData, "className", "classId");
+        if (clsVal instanceof String) {
+            task.setClassId(resolveClassId((String) clsVal));
+        } else if (clsVal != null) {
+            task.setClassId(Long.valueOf(clsVal.toString()));
         }
         if (taskData.containsKey("startTime")) {
             task.setStartTime(LocalDateTime.parse(taskData.get("startTime").toString().replace(" ", "T")));
@@ -861,13 +986,20 @@ public class TeacherServiceImpl implements TeacherService {
         if (task.getProjectId() != null) {
             ExperimentProject project = experimentProjectMapper.selectById(task.getProjectId());
             if (project != null) {
-                if (taskData.containsKey("projectName")) {
+                // 兼容前端字段名：title→projectName, taskType→projectType
+                String pName = (String) readInputField(taskData, "title", "projectName");
+                if (pName != null) {
+                    project.setProjectName(pName);
+                } else if (taskData.containsKey("projectName")) {
                     project.setProjectName((String) taskData.get("projectName"));
                 }
                 if (taskData.containsKey("description")) {
                     project.setDescription((String) taskData.get("description"));
                 }
-                if (taskData.containsKey("projectType")) {
+                String pType = (String) readInputField(taskData, "taskType", "projectType");
+                if (pType != null) {
+                    project.setProjectType(pType);
+                } else if (taskData.containsKey("projectType")) {
                     project.setProjectType((String) taskData.get("projectType"));
                 }
                 if (taskData.containsKey("guideFileUrl")) {
@@ -951,12 +1083,12 @@ public class TeacherServiceImpl implements TeacherService {
             Map<String, Object> item = new LinkedHashMap<>();
             item.put("submissionId", sub.getId());
             item.put("studentId", sub.getStudentId());
-            item.put("studentName", student != null ? (student.getRealName() != null ? student.getRealName() : student.getUsername()) : "");
+            item.put("userName", student != null ? (student.getRealName() != null ? student.getRealName() : student.getUsername()) : "");
             item.put("processDescription", sub.getProcessDescription());
             item.put("reportFileUrl", sub.getReportFileUrl());
             item.put("reportFileName", sub.getReportFileName());
             item.put("score", sub.getScore());
-            item.put("teacherComment", sub.getTeacherComment());
+            item.put("comment", sub.getTeacherComment());
             item.put("status", sub.getStatus());
             item.put("submitTime", sub.getSubmitTime());
             item.put("gradeTime", sub.getGradeTime());
@@ -1111,11 +1243,19 @@ public class TeacherServiceImpl implements TeacherService {
             resMap.put("fileSize", res.getFileSize());
             resMap.put("visibility", res.getVisibility());
             resMap.put("courseId", res.getCourseId());
+            // 根据 courseId 查询课程名称
+            if (res.getCourseId() != null) {
+                Course c = courseMapper.selectById(res.getCourseId());
+                resMap.put("courseName", c != null ? c.getCourseName() : "");
+            } else {
+                resMap.put("courseName", "");
+            }
             resMap.put("viewCount", res.getViewCount());
             resMap.put("downloadCount", res.getDownloadCount());
             resMap.put("auditStatus", res.getAuditStatus());
             resMap.put("auditComment", res.getAuditComment());
             resMap.put("createTime", res.getCreateTime());
+            resMap.put("uploadTime", res.getCreateTime());  // 前端使用的别名
 
             resourceList.add(resMap);
         }
@@ -1139,15 +1279,24 @@ public class TeacherServiceImpl implements TeacherService {
         if (resourceData.containsKey("categoryId")) {
             resource.setCategoryId(Long.valueOf(resourceData.get("categoryId").toString()));
         }
-        resource.setFileUrl((String) resourceData.get("fileUrl"));
-        resource.setFileName((String) resourceData.get("fileName"));
+        // 默认值处理：前端可能不传文件信息
+        String fileUrl = (String) resourceData.get("fileUrl");
+        resource.setFileUrl(fileUrl != null ? fileUrl : "");
+        String fileName = (String) resourceData.get("fileName");
+        resource.setFileName(fileName != null ? fileName : "");
         resource.setFileType((String) resourceData.get("fileType"));
         if (resourceData.containsKey("fileSize")) {
             resource.setFileSize(Long.valueOf(resourceData.get("fileSize").toString()));
+        } else {
+            resource.setFileSize(0L);
         }
         resource.setTeacherId(teacherId);
         resource.setVisibility((String) resourceData.get("visibility"));
-        if (resourceData.containsKey("courseId")) {
+        // 兼容前端字段名：courseName(课程名称字符串) / courseId(Long)
+        if (resourceData.containsKey("courseName")) {
+            Long cid = resolveCourseId((String) resourceData.get("courseName"));
+            if (cid != null) resource.setCourseId(cid);
+        } else if (resourceData.containsKey("courseId")) {
             resource.setCourseId(Long.valueOf(resourceData.get("courseId").toString()));
         }
         resource.setAuditStatus(AUDIT_PENDING);
@@ -1417,10 +1566,22 @@ public class TeacherServiceImpl implements TeacherService {
         levelDistribution.put("good", good);
         levelDistribution.put("needImprove", needImprove);
 
+        // 查询班级名称
+        String className = "";
+        if (classId != null) {
+            className = getClassName(classId);
+        } else if (!classIdSet.isEmpty()) {
+            className = getClassName(classIdSet.iterator().next());
+        }
+
         Map<String, Object> result = new LinkedHashMap<>();
-        result.put("totalStudents", totalStudents);
+        result.put("studentCount", totalStudents);
+        result.put("className", className);
         result.put("avgCompletionRate", avgCompletionRate);
         result.put("avgScore", avgScore);
+        result.put("avgCorrectRate", 0);       // 暂未跟踪，默认 0
+        result.put("avgExperimentRate", 0);    // 暂未跟踪，默认 0
+        result.put("avgTrainingRate", 0);      // 暂未跟踪，默认 0
         result.put("levelDistribution", levelDistribution);
         result.put("courseRanking", courseRanking);
 
@@ -1552,6 +1713,13 @@ public class TeacherServiceImpl implements TeacherService {
     public List<Map<String, Object>> getAtRiskStudents(Long classId, String filterType) {
         Long teacherId = UserContext.getUserId();
 
+        // 翻译前端过滤器值到后端常量
+        if ("MISSING".equals(filterType)) {
+            filterType = "MISSING_HOMEWORK";
+        } else if ("SLOW".equals(filterType)) {
+            filterType = "SLOW_PROGRESS";
+        }
+
         // 查询该教师教授的课程对应的班级
         QueryWrapper<CoursePlan> planQw = new QueryWrapper<>();
         planQw.eq("teacher_id", teacherId)
@@ -1659,13 +1827,22 @@ public class TeacherServiceImpl implements TeacherService {
             }
 
             if (isAtRisk) {
+                // 计算风险等级
+                String riskLevel = null;
+                if (avgScore.compareTo(BigDecimal.valueOf(60)) < 0 || missedTaskCount >= 3) {
+                    riskLevel = "HIGH";
+                } else if (avgProgress.compareTo(BigDecimal.valueOf(50)) < 0 || missedTaskCount >= 1) {
+                    riskLevel = "MEDIUM";
+                }
+
                 Map<String, Object> risk = new LinkedHashMap<>();
-                risk.put("studentId", student.getId());
-                risk.put("studentName", student.getRealName() != null ? student.getRealName() : student.getUsername());
+                risk.put("userId", student.getId());
+                risk.put("userName", student.getRealName() != null ? student.getRealName() : student.getUsername());
                 risk.put("className", student.getClassId() != null ? getClassName(student.getClassId()) : "");
                 risk.put("avgScore", avgScore);
-                risk.put("avgProgress", avgProgress);
-                risk.put("missedTaskCount", missedTaskCount);
+                risk.put("completionRate", avgProgress);
+                risk.put("missedTasks", missedTaskCount);
+                risk.put("riskLevel", riskLevel);
                 risk.put("riskReason", riskReason);
                 riskList.add(risk);
             }
@@ -1690,7 +1867,7 @@ public class TeacherServiceImpl implements TeacherService {
         announcement.setStatus(1);
         announcement.setPublishTime(LocalDateTime.now());
 
-        if ("HIGH".equalsIgnoreCase(importance)) {
+        if ("HIGH".equalsIgnoreCase(importance) || "IMPORTANT".equalsIgnoreCase(importance)) {
             announcement.setIsTop(1);
         } else {
             announcement.setIsTop(0);
@@ -1735,7 +1912,9 @@ public class TeacherServiceImpl implements TeacherService {
             item.put("content", ann.getContent());
             item.put("classId", ann.getTargetClassId());
             item.put("className", sysClass != null ? sysClass.getClassName() : "");
+            item.put("importance", ann.getIsTop() != null && ann.getIsTop() == 1 ? "IMPORTANT" : "NORMAL");
             item.put("isTop", ann.getIsTop());
+            item.put("readCount", 0);  // 暂未跟踪已读数
             item.put("publishTime", ann.getPublishTime());
             item.put("createTime", ann.getCreateTime());
             noticeList.add(item);
@@ -1787,9 +1966,22 @@ public class TeacherServiceImpl implements TeacherService {
 
         IPage<SysMessage> msgPageResult = sysMessageMapper.selectPage(msgPage, msgQw);
 
+        // 将实体列表转换为前端字段名的 Map 列表
+        List<Map<String, Object>> msgList = new ArrayList<>();
+        for (SysMessage msg : msgPageResult.getRecords()) {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("messageId", msg.getId());
+            m.put("title", msg.getTitle());
+            m.put("content", msg.getContent());
+            m.put("type", msg.getMessageType());
+            m.put("isRead", msg.getIsRead());
+            m.put("sendTime", msg.getCreateTime());
+            msgList.add(m);
+        }
+
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("unreadCount", unreadCount);
-        result.put("records", msgPageResult.getRecords());
+        result.put("records", msgList);
         result.put("total", msgPageResult.getTotal());
         result.put("page", msgPageResult.getCurrent());
         result.put("pageSize", msgPageResult.getSize());
@@ -2134,5 +2326,46 @@ public class TeacherServiceImpl implements TeacherService {
     private String getClassName(Long classId) {
         SysClass sysClass = sysClassMapper.selectById(classId);
         return sysClass != null ? sysClass.getClassName() : "";
+    }
+
+    /**
+     * 根据学期名称（如 "2025-2026-2"）查找学期 ID
+     */
+    private Long resolveSemesterId(String semesterName) {
+        if (semesterName == null || semesterName.isEmpty()) return null;
+        QueryWrapper<SysSemester> qw = new QueryWrapper<>();
+        qw.eq("semester_name", semesterName);
+        SysSemester sem = sysSemesterMapper.selectOne(qw);
+        return sem != null ? sem.getId() : null;
+    }
+
+    /**
+     * 根据班级名称查找班级 ID
+     */
+    private Long resolveClassId(String className) {
+        if (className == null || className.isEmpty()) return null;
+        QueryWrapper<SysClass> qw = new QueryWrapper<>();
+        qw.eq("class_name", className);
+        SysClass cls = sysClassMapper.selectOne(qw);
+        return cls != null ? cls.getId() : null;
+    }
+
+    /**
+     * 根据课程名称查找课程 ID（返回第一个匹配）
+     */
+    private Long resolveCourseId(String courseName) {
+        if (courseName == null || courseName.isEmpty()) return null;
+        QueryWrapper<Course> qw = new QueryWrapper<>();
+        qw.eq("course_name", courseName);
+        Course course = courseMapper.selectOne(qw);
+        return course != null ? course.getId() : null;
+    }
+
+    /**
+     * 兼容读取输入字段：优先用前端 key，fallback 用后端 key
+     */
+    private Object readInputField(Map<String, Object> data, String frontendKey, String backendKey) {
+        if (data.containsKey(frontendKey)) return data.get(frontendKey);
+        return data.get(backendKey);
     }
 }

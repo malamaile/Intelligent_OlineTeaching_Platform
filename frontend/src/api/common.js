@@ -2,9 +2,7 @@ import http from './index'
 
 /** 通用文件上传 */
 export function uploadFile(formData) {
-  return http.post('/common/upload', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  })
+  return http.post('/common/upload', formData)
 }
 
 /** 获取院系列表 */

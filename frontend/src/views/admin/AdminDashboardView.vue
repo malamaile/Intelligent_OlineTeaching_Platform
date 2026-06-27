@@ -33,7 +33,7 @@ const auditTrendOption = ref({
   xAxis: { type: 'category', data: ['周一', '周二', '周三', '周四', '周五', '周六', '周日'] },
   yAxis: { type: 'value' },
   series: [
-    { name: '提交', type: 'line', smooth: true, da哪怕，ta: [0, 0, 0, 0, 0, 0, 0], areaStyle: { opacity: 0.1 } },
+    { name: '提交', type: 'line', smooth: true, data: [0, 0, 0, 0, 0, 0, 0], areaStyle: { opacity: 0.1 } },
     { name: '通过', type: 'line', smooth: true, data: [0, 0, 0, 0, 0, 0, 0], lineStyle: { color: '#67c23a' }, itemStyle: { color: '#67c23a' } },
     { name: '驳回', type: 'line', smooth: true, data: [0, 0, 0, 0, 0, 0, 0], lineStyle: { color: '#f56c6c' }, itemStyle: { color: '#f56c6c' } },
   ],

@@ -28,15 +28,11 @@ export function getTaskDetail(taskId) {
 }
 
 export function submitTask(taskId, formData) {
-  return http.post(`/student/tasks/${taskId}/submit`, formData, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  })
+  return http.post(`/student/tasks/${taskId}/submit`, formData)
 }
 
 export function resubmitTask(taskId, formData) {
-  return http.post(`/student/tasks/${taskId}/resubmit`, formData, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  })
+  return http.post(`/student/tasks/${taskId}/resubmit`, formData)
 }
 
 export function getTaskResult(taskId) {
@@ -71,9 +67,7 @@ export function updateProfile(data) {
 }
 
 export function uploadAvatar(formData) {
-  return http.post('/student/profile/avatar', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  })
+  return http.post('/student/profile/avatar', formData)
 }
 
 export function getMyGrades(params) {
