@@ -6,10 +6,21 @@ import com.iotp.service.TeacherService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
+import javax.servlet.http.HttpServletResponse;
+import java.io.IOException;
+import java.io.OutputStream;
+import java.net.URLEncoder;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * 教师端控制器
@@ -24,6 +35,10 @@ public class TeacherController {
 
     @Autowired
     private TeacherService teacherService;
+
+    /** 文件上传根目录 */
+    @Value("${app.upload.dir:uploads}")
+    private String uploadDir;
 
     // ==================== 首页看板 ====================
 
@@ -120,13 +135,29 @@ public class TeacherController {
     }
 
     /**
-     * 导出成绩（功能开发中）
+     * 导出成绩（Excel 文件下载）
      *
      * GET /teacher/courses/{courseId}/grades/export
      */
     @GetMapping("/courses/{courseId}/grades/export")
-    public Result<String> exportGrades(@PathVariable Long courseId) {
-        return Result.ok("功能开发中");
+    public void exportGrades(@PathVariable Long courseId, HttpServletResponse response) {
+        try {
+            byte[] excelBytes = teacherService.exportGrades(courseId);
+
+            response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+            response.setCharacterEncoding("UTF-8");
+            String fileName = URLEncoder.encode("成绩表.xlsx", "UTF-8").replace("+", "%20");
+            response.setHeader("Content-Disposition", "attachment; filename*=UTF-8''" + fileName);
+
+            try (OutputStream os = response.getOutputStream()) {
+                os.write(excelBytes);
+                os.flush();
+            }
+            log.info("教师导出了课程 {} 的成绩", courseId);
+        } catch (IOException e) {
+            log.error("导出成绩失败：{}", e.getMessage(), e);
+            throw new RuntimeException("导出失败", e);
+        }
     }
 
     // ==================== 实验任务管理 ====================
@@ -161,13 +192,37 @@ public class TeacherController {
     }
 
     /**
-     * 上传任务指导文件（功能开发中）
+     * 上传任务指导文件
      *
      * POST /teacher/tasks/{taskId}/guide-files
+     * RequestParam: file (MultipartFile)
      */
     @PostMapping("/tasks/{taskId}/guide-files")
-    public Result<String> uploadGuideFile(@PathVariable Long taskId) {
-        return Result.ok("功能开发中");
+    public Result<Map<String, Object>> uploadGuideFile(
+            @PathVariable Long taskId,
+            @RequestParam("file") MultipartFile file) {
+
+        if (file == null || file.isEmpty()) {
+            return Result.badRequest("文件不能为空");
+        }
+
+        try {
+            // 保存文件
+            String fileUrl = saveUploadedFile(file, "guide");
+            String fileName = file.getOriginalFilename();
+
+            // 更新任务关联的项目的指导文件
+            teacherService.uploadGuideFile(taskId, fileUrl, fileName);
+
+            Map<String, Object> data = new java.util.HashMap<>();
+            data.put("taskId", taskId);
+            data.put("fileUrl", fileUrl);
+            data.put("fileName", fileName);
+            return Result.ok("指导文件上传成功", data);
+        } catch (Exception e) {
+            log.error("指导文件上传失败：{}", e.getMessage(), e);
+            return Result.serverError("文件上传失败：" + e.getMessage());
+        }
     }
 
     /**
@@ -300,13 +355,14 @@ public class TeacherController {
     }
 
     /**
-     * 查看审核反馈（功能开发中）
+     * 查看审核反馈
      *
      * GET /teacher/resources/{resourceId}/audit-feedback
      */
     @GetMapping("/resources/{resourceId}/audit-feedback")
-    public Result<String> getAuditFeedback(@PathVariable Long resourceId) {
-        return Result.ok("功能开发中");
+    public Result<Map<String, Object>> getAuditFeedback(@PathVariable Long resourceId) {
+        Map<String, Object> data = teacherService.getAuditFeedback(resourceId);
+        return Result.ok(data);
     }
 
     /**
@@ -365,15 +421,32 @@ public class TeacherController {
     }
 
     /**
-     * 导出学情分析（功能开发中）
+     * 导出学情分析（Excel 文件下载）
      *
      * GET /teacher/analytics/export?classId=1&semester=1
      */
     @GetMapping("/analytics/export")
-    public Result<String> exportAnalytics(
+    public void exportAnalytics(
             @RequestParam(required = false) Long classId,
-            @RequestParam(required = false) Long semester) {
-        return Result.ok("功能开发中");
+            @RequestParam(required = false) Long semester,
+            HttpServletResponse response) {
+        try {
+            byte[] excelBytes = teacherService.exportAnalytics(classId, semester);
+
+            response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+            response.setCharacterEncoding("UTF-8");
+            String fileName = URLEncoder.encode("学情分析报表.xlsx", "UTF-8").replace("+", "%20");
+            response.setHeader("Content-Disposition", "attachment; filename*=UTF-8''" + fileName);
+
+            try (OutputStream os = response.getOutputStream()) {
+                os.write(excelBytes);
+                os.flush();
+            }
+            log.info("教师导出了学情分析报表");
+        } catch (IOException e) {
+            log.error("导出学情分析失败：{}", e.getMessage(), e);
+            throw new RuntimeException("导出失败", e);
+        }
     }
 
     // ==================== 通知公告 ====================
@@ -434,6 +507,64 @@ public class TeacherController {
             @RequestParam(defaultValue = "10") Integer pageSize) {
         Map<String, Object> data = teacherService.getTeacherMessages(page, pageSize);
         return Result.ok(data);
+    }
+
+    /**
+     * 标记单条消息已读
+     *
+     * PUT /teacher/messages/{messageId}/read
+     */
+    @PutMapping("/messages/{messageId}/read")
+    public Result<String> markMessageAsRead(@PathVariable Long messageId) {
+        teacherService.markMessageAsRead(messageId);
+        return Result.ok("已标记已读");
+    }
+
+    /**
+     * 全部标记已读
+     *
+     * PUT /teacher/messages/read-all
+     */
+    @PutMapping("/messages/read-all")
+    public Result<String> markAllMessagesAsRead() {
+        teacherService.markAllMessagesAsRead();
+        return Result.ok("全部已读");
+    }
+
+    // ==================== 私有辅助方法 ====================
+
+    /**
+     * 保存上传的文件到本地，返回访问 URL
+     *
+     * @param file   上传的文件
+     * @param module 业务模块标识
+     * @return 文件访问 URL
+     */
+    private String saveUploadedFile(MultipartFile file, String module) throws IOException {
+        // 构造存储目录：uploads/{module}/YYYY/MM/
+        LocalDate now = LocalDate.now();
+        String yearMonth = now.getYear() + "/" + String.format("%02d", now.getMonthValue());
+        String dirPath = uploadDir + "/" + module + "/" + yearMonth + "/";
+
+        // 创建目录
+        Path uploadPath = Paths.get(dirPath);
+        if (!Files.exists(uploadPath)) {
+            Files.createDirectories(uploadPath);
+        }
+
+        // 生成唯一文件名
+        String originalName = file.getOriginalFilename();
+        String ext = "";
+        if (originalName != null && originalName.contains(".")) {
+            ext = originalName.substring(originalName.lastIndexOf("."));
+        }
+        String uniqueName = UUID.randomUUID().toString().replace("-", "") + ext;
+
+        // 保存文件
+        Path filePath = uploadPath.resolve(uniqueName);
+        Files.copy(file.getInputStream(), filePath);
+
+        return "/" + dirPath + uniqueName;
     }
 
 }

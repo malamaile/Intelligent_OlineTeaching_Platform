@@ -12,6 +12,12 @@ import java.util.Map;
 /**
  * 认证控制器
  * <p>提供登录、登出、密码重置、当前用户信息查询等 RESTful 接口。</p>
+ * {
+ *   "code": 200,
+ *   "message": "操作成功",
+ *   "data": {},
+ *   "timestamp": 1719200000000
+ * }
  */
 @RestController
 @RequestMapping("/auth")
