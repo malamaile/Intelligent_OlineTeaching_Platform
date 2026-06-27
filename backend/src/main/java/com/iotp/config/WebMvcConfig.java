@@ -30,7 +30,8 @@ public class WebMvcConfig implements WebMvcConfigurer {
                         "/auth/login",                         // 登录
                         "/auth/register",                      // 注册
                         "/auth/forgot-password/verify",        // 忘记密码-验证身份
-                        "/auth/forgot-password/reset"          // 忘记密码-重置密码
+                        "/auth/forgot-password/reset",         // 忘记密码-重置密码
+                        "/common/files/**"                     // 上传文件访问（图片等）
                 );
     }
 
@@ -61,6 +62,10 @@ public class WebMvcConfig implements WebMvcConfigurer {
 
         registry.addResourceHandler("/webjars/**")
                 .addResourceLocations("classpath:/META-INF/resources/webjars/");
+
+        // 上传文件静态资源映射（头像、课件等）
+        registry.addResourceHandler("/uploads/**")
+                .addResourceLocations("file:uploads/");
     }
 
 }

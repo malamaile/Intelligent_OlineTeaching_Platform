@@ -289,14 +289,21 @@ public class StudentController {
     }
 
     /**
-     * 上传头像（功能开发中）
+     * 上传头像
      *
      * POST /student/profile/avatar
      * 格式：multipart/form-data，字段：file（头像文件）
      */
     @PostMapping("/profile/avatar")
-    public Result<String> uploadAvatar(@RequestParam("file") MultipartFile file) {
-        return Result.ok("功能开发中");
+    public Result<Map<String, Object>> uploadAvatar(@RequestParam("file") MultipartFile file) {
+        String fileUrl = handleFileUpload(file, "avatars");
+        if (fileUrl == null) {
+            return Result.serverError("头像上传失败");
+        }
+
+        Map<String, Object> data = new java.util.LinkedHashMap<>();
+        data.put("avatarUrl", fileUrl);
+        return Result.ok("头像上传成功", data);
     }
 
     // ==================== 成绩查询 ====================
@@ -387,8 +394,8 @@ public class StudentController {
             Path filePath = uploadPath.resolve(filename);
             Files.copy(file.getInputStream(), filePath);
 
-            // 返回文件访问 URL
-            return "/" + uploadDir + "/" + subDir + "/" + filename;
+            // 返回文件访问 URL（通过 CommonController 端点）
+            return "/api/v1/common/files/" + subDir + "/" + filename;
         } catch (IOException e) {
             log.error("文件上传失败：{}", e.getMessage(), e);
             return null;

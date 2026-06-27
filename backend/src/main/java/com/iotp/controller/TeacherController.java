@@ -564,7 +564,7 @@ public class TeacherController {
         Path filePath = uploadPath.resolve(uniqueName);
         Files.copy(file.getInputStream(), filePath);
 
-        return "/" + dirPath + uniqueName;
+        return "/api/v1/common/files/" + module + "/" + yearMonth + "/" + uniqueName;
     }
 
 }

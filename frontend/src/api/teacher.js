@@ -106,3 +106,36 @@ export function deleteNotice(noticeId) {
 export function getTeacherMessages(params) {
   return http.get('/teacher/messages', { params })
 }
+
+export function markMessageRead(messageId) {
+  return http.put(`/teacher/messages/${messageId}/read`)
+}
+
+export function markAllMessagesRead() {
+  return http.put('/teacher/messages/read-all')
+}
+
+// ==================== Guide Files ====================
+export function uploadGuideFile(taskId, file) {
+  const formData = new FormData()
+  formData.append('file', file)
+  return http.post(`/teacher/tasks/${taskId}/guide-files`, formData)
+}
+
+// ==================== Audit Feedback ====================
+export function getAuditFeedback(resourceId) {
+  return http.get(`/teacher/resources/${resourceId}/audit-feedback`)
+}
+
+export function resubmitResource(resourceId, data) {
+  return http.post(`/teacher/resources/${resourceId}/resubmit`, data)
+}
+
+// ==================== Export ====================
+export function exportGrades(courseId) {
+  return http.get(`/teacher/courses/${courseId}/grades/export`, { responseType: 'blob' })
+}
+
+export function exportAnalytics(params) {
+  return http.get('/teacher/analytics/export', { params, responseType: 'blob' })
+}
