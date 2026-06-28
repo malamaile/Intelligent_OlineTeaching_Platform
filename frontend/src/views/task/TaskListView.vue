@@ -102,7 +102,7 @@ const submitRules = {
 }
 
 function openSubmit(task) {
-  detail.value = { taskId: task.taskId, taskType: task.taskType, title: task.title }
+  detail.value = { taskId: task.taskId, taskType: task.taskType, title: task.title, deadline: task.deadline, taskStatus: task.status }
   submitForm.content = ''
   submitForm.reportFile = null
   fileList.value = []
@@ -139,7 +139,7 @@ async function handleSubmit() {
     if (submitForm.attachmentFiles?.length) {
       submitForm.attachmentFiles.forEach((f) => formData.append('attachmentFiles', f))
     }
-    const isResubmit = detail.value?.mySubmission?.status === 'RETURNED'
+    const isResubmit = detail.value?.taskStatus === 'RETURNED'
     if (isResubmit) {
       await resubmitTask(detail.value.taskId, formData)
     } else {

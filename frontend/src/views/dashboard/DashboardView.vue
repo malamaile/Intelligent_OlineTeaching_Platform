@@ -23,6 +23,7 @@ const todoTypeConfig = {
 const notifyTypeConfig = {
   ANNOUNCEMENT: { label: '全校公告', color: '#409eff' },
   CLASS_NOTICE: { label: '班级通知', color: '#00D048' },
+  MESSAGE: { label: '个人消息', color: '#e6a23c' },
 }
 
 // 通知详情弹窗
