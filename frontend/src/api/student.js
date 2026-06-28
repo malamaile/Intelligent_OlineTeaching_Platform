@@ -57,6 +57,7 @@ export function getAnalyticsOverview(params) {
   return http.get('/student/analytics/overview', { params })
 }
 
+
 export function getDiagnosisReport(params) {
   return http.get('/student/analytics/diagnosis', { params })
 }
