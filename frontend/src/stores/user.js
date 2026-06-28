@@ -17,7 +17,16 @@ export const useUserStore = defineStore('user', {
 
   getters: {
     isLoggedIn: (state) => !!state.token,
-    role: (state) => state.userInfo?.roleCode || state.userInfo?.role || '',
+    role: (state) => {
+      const roleCode = state.userInfo?.roleCode
+      if (roleCode === 'ADMIN' || roleCode === 'TEACHER' || roleCode === 'STUDENT') return roleCode
+      // 兜底：通过角色中文名映射
+      const roleName = state.userInfo?.role
+      if (roleName === '管理员' || roleName === 'admin') return 'ADMIN'
+      if (roleName === '教师' || roleName === 'teacher') return 'TEACHER'
+      if (roleName === '学生' || roleName === 'student') return 'STUDENT'
+      return roleCode || roleName || ''
+    },
     userName: (state) => state.userInfo?.userName || state.userInfo?.realName || '',
   },
 

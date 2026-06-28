@@ -316,6 +316,7 @@ public class AuthServiceImpl implements AuthService {
         userInfo.put("account", user.getUsername());
         userInfo.put("userName", user.getRealName());
         userInfo.put("role", roleName);
+        userInfo.put("roleCode", (sysRole != null) ? sysRole.getRoleCode() : "");
         userInfo.put("avatar", user.getAvatar());
         userInfo.put("email", user.getEmail());
         userInfo.put("phone", user.getPhone());

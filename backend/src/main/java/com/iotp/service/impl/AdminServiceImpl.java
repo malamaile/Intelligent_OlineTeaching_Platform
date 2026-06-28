@@ -1659,22 +1659,43 @@ public class AdminServiceImpl implements AdminService {
         Map<String, Object> map = new LinkedHashMap<>();
         map.put("id", user.getId());
         map.put("username", user.getUsername());
+        map.put("account", user.getUsername());
         map.put("realName", user.getRealName());
+        map.put("userName", user.getRealName());
         map.put("email", user.getEmail());
         map.put("phone", user.getPhone());
         map.put("avatar", user.getAvatar());
         map.put("roleId", user.getRoleId());
-        map.put("roleName", getRoleName(user.getRoleId()));
+
+        // 同时填充 roleCode 和 roleName，避免前端因缺少字段误判
+        String[] roleCodeAndName = getRoleCodeAndName(user.getRoleId());
+        map.put("role", roleCodeAndName[0]);
+        map.put("roleName", roleCodeAndName[1]);
         map.put("departmentId", user.getDepartmentId());
         map.put("departmentName", getDepartmentName(user.getDepartmentId()));
+        map.put("department", getDepartmentName(user.getDepartmentId()));
         map.put("classId", user.getClassId());
         map.put("className", getClassName(user.getClassId()));
-        map.put("status", user.getStatus());
+
+        // 状态字段：同时返回整数值供后端使用 + 字符串供前端显示
+        Integer statusInt = user.getStatus();
+        map.put("status", statusInt != null ? statusInt : 1);
+        map.put("statusType", statusToCode(statusInt));
+
         map.put("loginFailCount", user.getLoginFailCount());
         map.put("lastLoginTime", user.getLastLoginTime());
         map.put("createTime", user.getCreateTime());
         map.put("updateTime", user.getUpdateTime());
         return map;
+    }
+
+    /**
+     * 状态整数值 → 状态编码字符串
+     */
+    private String statusToCode(Integer status) {
+        if (status == null || status == 1) return "ACTIVE";
+        if (status == 0) return "FROZEN";
+        return "LOCKED";
     }
 
     /**
@@ -1749,12 +1770,16 @@ public class AdminServiceImpl implements AdminService {
     }
 
     /**
-     * 获取角色名称
+     * 获取角色编码和名称
+     * @return [roleCode, roleName]
      */
-    private String getRoleName(Long roleId) {
-        if (roleId == null) return "";
+    private String[] getRoleCodeAndName(Long roleId) {
+        if (roleId == null) return new String[]{"", ""};
         SysRole role = sysRoleMapper.selectById(roleId);
-        return role != null ? role.getRoleName() : "";
+        if (role != null) {
+            return new String[]{role.getRoleCode() != null ? role.getRoleCode() : "", role.getRoleName()};
+        }
+        return new String[]{"", ""};
     }
 
     /**
