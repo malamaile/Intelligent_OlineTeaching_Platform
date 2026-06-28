@@ -14,8 +14,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.DayOfWeek;
@@ -858,10 +862,6 @@ public class StudentServiceImpl implements StudentService {
             throw new BusinessException(404, "实验任务不存在");
         }
 
-        if (task.getEndTime() != null && task.getEndTime().isBefore(LocalDateTime.now())) {
-            throw new BusinessException(400, "任务已截止，无法重新提交");
-        }
-
         QueryWrapper<StudentExperimentSubmission> existQw = new QueryWrapper<>();
         existQw.eq("task_id", taskId)
                 .eq("student_id", studentId);
@@ -873,6 +873,11 @@ public class StudentServiceImpl implements StudentService {
 
         if (!SUBMIT_STATUS_RETURNED.equals(submission.getStatus())) {
             throw new BusinessException(400, "当前状态不允许重新提交，仅在被退回时可重新提交");
+        }
+
+        // 被退回允许重交，即使已逾期（教师退回即表示允许补交）
+        if (task.getEndTime() != null && task.getEndTime().isBefore(LocalDateTime.now())) {
+            log.info("学生 {} 在截止时间后重新提交任务 {}（状态：已退回）", studentId, taskId);
         }
 
         int retryCount = submission.getResubmitCount() != null ? submission.getResubmitCount() : 0;
@@ -1088,6 +1093,43 @@ public class StudentServiceImpl implements StudentService {
         result.put("isFavorited", isFavorited);
 
         return result;
+    }
+
+    @Override
+    public Object[] downloadResource(Long resourceId) {
+        TeachingResource resource = teachingResourceMapper.selectById(resourceId);
+        if (resource == null) {
+            throw new BusinessException(404, "资源不存在");
+        }
+
+        // 从 fileUrl 解析本地文件路径，fileUrl 格式：/api/v1/common/files/xxx/yyy/zzz.ext
+        String fileUrl = resource.getFileUrl();
+        if (fileUrl == null || fileUrl.isEmpty()) {
+            throw new BusinessException(400, "资源文件不存在");
+        }
+
+        String prefix = "/api/v1/common/files/";
+        String relativePath = fileUrl.startsWith(prefix)
+                ? fileUrl.substring(prefix.length())
+                : fileUrl;
+
+        Path filePath = Paths.get("uploads", relativePath);
+        if (!Files.exists(filePath) || !Files.isReadable(filePath)) {
+            throw new BusinessException(404, "文件未找到或不可读");
+        }
+
+        try {
+            byte[] fileBytes = Files.readAllBytes(filePath);
+            String fileName = resource.getFileName();
+            if (fileName == null || fileName.isEmpty()) {
+                fileName = filePath.getFileName().toString();
+            }
+            log.info("学生 {} 下载了资源 {}：{}", UserContext.getUserId(), resourceId, fileName);
+            return new Object[]{fileName, fileBytes};
+        } catch (IOException e) {
+            log.error("读取资源文件失败：{}", e.getMessage(), e);
+            throw new BusinessException(500, "文件读取失败");
+        }
     }
 
     // ==================== 学情分析 ====================

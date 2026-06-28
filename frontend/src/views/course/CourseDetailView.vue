@@ -6,7 +6,7 @@ import { ElMessage } from 'element-plus'
 
 const route = useRoute()
 const router = useRouter()
-const courseId = Number(route.params.courseId)
+const courseId = Number(route.params.id)
 
 const loading = ref(false)
 const course = ref(null)

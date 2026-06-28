@@ -215,13 +215,27 @@ public class StudentController {
     }
 
     /**
-     * 下载教学资源（功能开发中）
+     * 下载教学资源
      *
      * GET /student/resources/{resourceId}/download
      */
     @GetMapping("/resources/{resourceId}/download")
-    public Result<String> downloadResource(@PathVariable Long resourceId) {
-        return Result.ok("功能开发中");
+    public void downloadResource(@PathVariable Long resourceId, javax.servlet.http.HttpServletResponse response) {
+        Object[] result = studentService.downloadResource(resourceId);
+        String fileName = (String) result[0];
+        byte[] fileBytes = (byte[]) result[1];
+
+        try {
+            response.setContentType("application/octet-stream");
+            response.setHeader("Content-Disposition",
+                    "attachment; filename*=UTF-8''" + java.net.URLEncoder.encode(fileName, "UTF-8").replace("+", "%20"));
+            response.setContentLength(fileBytes.length);
+            response.getOutputStream().write(fileBytes);
+            response.getOutputStream().flush();
+        } catch (java.io.IOException e) {
+            log.error("文件下载失败：{}", e.getMessage(), e);
+            throw new RuntimeException("文件下载失败", e);
+        }
     }
 
     /**

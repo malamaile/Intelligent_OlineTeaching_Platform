@@ -133,6 +133,14 @@ public interface StudentService {
      */
     Map<String, Object> favoriteResource(Long resourceId);
 
+    /**
+     * 下载教学资源，返回文件字节数组及文件名
+     *
+     * @param resourceId 资源 ID
+     * @return [fileName, fileBytes]
+     */
+    Object[] downloadResource(Long resourceId);
+
     // ==================== 学情分析 ====================
 
     /**

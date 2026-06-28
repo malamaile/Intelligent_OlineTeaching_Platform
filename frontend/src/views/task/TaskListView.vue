@@ -229,23 +229,25 @@ onMounted(fetchTasks)
             <span v-else class="no-score">-</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="180" fixed="right">
+        <el-table-column label="操作" min-width="190">
           <template #default="{ row }">
-            <el-button
-              v-if="row.status === 'NOT_STARTED' || row.status === 'IN_PROGRESS' || row.status === 'RETURNED'"
-              type="primary" size="small"
-              @click="openSubmit(row)"
-            >
-              {{ row.status === 'RETURNED' ? '重新提交' : '提交' }}
-            </el-button>
-            <el-button
-              v-if="row.status === 'GRADED' || row.status === 'RETURNED'"
-              type="info" size="small"
-              @click="openResult(row)"
-            >
-              查看结果
-            </el-button>
-            <el-button size="small" @click="openDetail(row)">详情</el-button>
+            <div class="action-buttons">
+              <el-button size="small" @click="openDetail(row)">详情</el-button>
+              <el-button
+                v-if="row.status === 'NOT_STARTED' || row.status === 'IN_PROGRESS' || row.status === 'RETURNED'"
+                type="primary" size="small"
+                @click="openSubmit(row)"
+              >
+                {{ row.status === 'RETURNED' ? '重新提交' : '提交' }}
+              </el-button>
+              <el-button
+                v-if="row.status === 'GRADED' || row.status === 'RETURNED'"
+                type="info" size="small"
+                @click="openResult(row)"
+              >
+                查看结果
+              </el-button>
+            </div>
           </template>
         </el-table-column>
       </el-table>
@@ -497,5 +499,14 @@ onMounted(fetchTasks)
 
 .el-upload__tip {
   margin-top: 4px;
+}
+
+/* 操作按钮同行排列 */
+.action-buttons {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: nowrap;
+  white-space: nowrap;
 }
 </style>
