@@ -1,5 +1,5 @@
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { getAnalyticsOverview, getDiagnosisReport } from '@/api/student'
 import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
@@ -26,6 +26,47 @@ const levelConfig = {
   GOOD: { label: '良好', color: '#9fc9f4', bg: '#ecf5ff' },
   NEED_IMPROVE: { label: '待提升', color: '#f7d39b', bg: '#fdf6ec' },
 }
+
+// 解析薄弱知识点（knowledge 可能是 JSON 数组字符串如 '["a","b"]'）
+function parseWeakPoint(knowledge) {
+  if (!knowledge) return []
+  try {
+    const parsed = JSON.parse(knowledge)
+    if (Array.isArray(parsed)) return parsed
+  } catch { /* 不是 JSON */ }
+  return [knowledge]
+}
+
+// 解析诊断报告（diagnosis.summary 可能是 JSON 字符串）
+const diagReport = computed(() => {
+  if (!diagnosis.value) return null
+  const raw = diagnosis.value.summary
+  if (!raw) return null
+
+  // 尝试解析为 JSON
+  try {
+    const parsed = JSON.parse(raw)
+    if (typeof parsed === 'object' && parsed !== null) {
+      return {
+        summary: parsed.summary || '',
+        strengths: parsed.strengths || [],
+        improvements: parsed.improvements || [],
+        suggestions: parsed.suggestions || [],
+      }
+    }
+  } catch {
+    // 不是 JSON，作为纯文本
+  }
+
+  // 纯文本兜底
+  return {
+    summary: raw,
+    strengths: diagnosis.value.strengths || [],
+    improvements: diagnosis.value.improvements || diagnosis.value.weakPoints || [],
+    suggestions: diagnosis.value.suggestions
+      || (diagnosis.value.suggestResources || []).map(r => r.name || r.resourceName || r.knowledge || ''),
+  }
+})
 
 // ========== 课程成绩柱状图 ==========
 const courseScoreOption = ref(null)
@@ -134,7 +175,7 @@ function buildWeeklyChart(weeklyTrend) {
   weeklyTrendOption.value = {
     tooltip: { trigger: 'axis' },
     legend: { data: ['学习时长(分钟)', '完成任务数'], bottom: 0 },
-    grid: { left: 50, right: 50, top: 20, bottom: 35 },
+    grid: { left: 50, right: 50, top: 20, bottom: 50 },
     xAxis: { type: 'category', data: weeklyTrend.map((w) => w.week) },
     yAxis: [
       { type: 'value', name: '分钟' },
@@ -255,23 +296,52 @@ onMounted(fetchData)
       <el-col :span="12">
         <div class="card-wrapper">
           <div class="card-title">诊断概要</div>
-          <el-alert
-            :title="diagnosis.summary"
-            :type="diagnosis.academicLevel === 'EXCELLENT' ? 'success' : diagnosis.academicLevel === 'GOOD' ? 'info' : 'warning'"
-            :closable="false" show-icon
-          />
+
+          <div class="diag-summary-block diag-block-summary" v-if="diagReport">
+            <div class="diag-summary-label">总体评价</div>
+            <div class="diag-summary-text">{{ diagReport.summary }}</div>
+          </div>
+
+          <div class="diag-summary-block diag-block-strengths" v-if="diagReport?.strengths?.length">
+            <div class="diag-summary-label">优势</div>
+            <div class="diag-summary-text">
+              <div v-for="(item, idx) in diagReport.strengths" :key="idx" class="diag-summary-line">
+                {{ idx + 1 }}、{{ item }}
+              </div>
+            </div>
+          </div>
+
+          <div class="diag-summary-block diag-block-improvements" v-if="diagReport?.improvements?.length">
+            <div class="diag-summary-label">待提升</div>
+            <div class="diag-summary-text">
+              <div v-for="(item, idx) in diagReport.improvements" :key="idx" class="diag-summary-line">
+                {{ idx + 1 }}、{{ item }}
+              </div>
+            </div>
+          </div>
+
+          <div class="diag-summary-block diag-block-suggestions" v-if="diagReport?.suggestions?.length">
+            <div class="diag-summary-label">建议</div>
+            <div class="diag-summary-text">
+              <div v-for="(item, idx) in diagReport.suggestions" :key="idx" class="diag-summary-line">
+                {{ idx + 1 }}、{{ item }}
+              </div>
+            </div>
+          </div>
         </div>
       </el-col>
       <el-col :span="6">
         <div class="card-wrapper" v-if="diagnosis.weakPoints?.length">
           <div class="card-title">薄弱知识点</div>
-          <el-tag
-            v-for="(wp, idx) in diagnosis.weakPoints" :key="idx"
-            type="danger" effect="plain" class="diag-tag"
-          >
-            {{ wp.knowledge }}
-            <span class="diag-tag-sub">{{ wp.courseName }}</span>
-          </el-tag>
+          <template v-for="(wp, idx) in diagnosis.weakPoints" :key="idx">
+            <div v-for="(item, i) in parseWeakPoint(wp.knowledge)" :key="idx + '-' + i" class="weak-item">
+              <span class="weak-icon">!</span>
+              <div>
+                <div class="weak-knowledge">{{ item }}</div>
+                <div class="weak-course" v-if="wp.courseName">{{ wp.courseName }}</div>
+              </div>
+            </div>
+          </template>
         </div>
       </el-col>
       <el-col :span="6">
@@ -296,6 +366,116 @@ onMounted(fetchData)
   font-size: 13px;
   color: #909399;
   margin-top: 4px;
+}
+
+/* ========== 诊断概要 ========== */
+.diag-summary-block {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.diag-summary-block:last-child {
+  margin-bottom: 0;
+}
+
+.diag-summary-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #303133;
+  white-space: nowrap;
+  flex-shrink: 0;
+  min-width: 52px;
+}
+
+.diag-summary-text {
+  font-size: 13px;
+  color: #606266;
+  line-height: 1.8;
+  flex: 1;
+}
+
+.diag-summary-line {
+  padding: 1px 0;
+}
+
+/* 各区块标题前的小图形 */
+.diag-summary-label::before {
+  content: '';
+  display: inline-block;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
+.diag-block-summary .diag-summary-label::before {
+  width: 8px;
+  height: 8px;
+  background-color: #409eff;
+  border-radius: 1px;
+}
+
+.diag-block-strengths .diag-summary-label::before {
+  width: 8px;
+  height: 8px;
+  background-color: #67c23a;
+  border-radius: 50%;
+}
+
+.diag-block-improvements .diag-summary-label::before {
+  width: 8px;
+  height: 8px;
+  background-color: #e6a23c;
+  transform: rotate(45deg);
+}
+
+.diag-block-suggestions .diag-summary-label::before {
+  width: 0;
+  height: 0;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-bottom: 8px solid #f56c6c;
+  background-color: transparent;
+  border-radius: 0;
+}
+
+.weak-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid #f5f5f5;
+}
+
+.weak-item:last-child {
+  border-bottom: none;
+}
+
+.weak-icon {
+  width: 18px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 1px;
+  font-size: 10px;
+  font-weight: 700;
+  color: #fff;
+  background-color: #f56c6c;
+  clip-path: polygon(50% 0%, 0% 100%, 100% 100%);
+  line-height: 1;
+}
+
+.weak-knowledge {
+  font-size: 13px;
+  color: #303133;
+}
+
+.weak-course {
+  font-size: 11px;
+  color: #909399;
+  margin-top: 2px;
 }
 
 .diag-tag {
