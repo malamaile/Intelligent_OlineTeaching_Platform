@@ -19,15 +19,16 @@ const classData = ref({
 
 // 学业等级饼图 — 使用 computed 确保数据变化时图表更新
 const levelPieOption = computed(() => ({
-  tooltip: { trigger: 'item' },
+  tooltip: { trigger: 'item', formatter: '{b}: {c}人 ({d}%)' },
   legend: { bottom: 0 },
   series: [{
-    type: 'pie', radius: ['50%', '72%'], center: ['50%', '45%'],
-    label: { formatter: '{b}\n{d}%' },
+    type: 'pie', radius: ['40%', '72%'], center: ['50%', '45%'],
+    label: { formatter: '{b}\n{c}人 ({d}%)' },
+    emphasis: { itemStyle: { shadowBlur: 10, shadowOffsetX: 0, shadowColor: 'rgba(0,0,0,0.5)' } },
     data: [
-      { value: classData.value.levelDistribution?.excellent || 0, name: '优秀', itemStyle: { color: '#9cee73' } },
-      { value: classData.value.levelDistribution?.good || 0, name: '良好', itemStyle: { color: '#7eb9f4' } },
-      { value: classData.value.levelDistribution?.needImprove || 0, name: '待提升', itemStyle: { color: '#f9c578' } },
+      { value: classData.value.levelDistribution?.excellent || 0, name: '优秀 (≥90)', itemStyle: { color: '#9cee73' } },
+      { value: classData.value.levelDistribution?.good || 0, name: '良好 (80-89)', itemStyle: { color: '#7eb9f4' } },
+      { value: classData.value.levelDistribution?.needImprove || 0, name: '待提升 (<80)', itemStyle: { color: '#f9c578' } },
     ],
   }],
 }))

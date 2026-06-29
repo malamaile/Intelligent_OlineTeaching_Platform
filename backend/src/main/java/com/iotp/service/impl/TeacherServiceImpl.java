@@ -712,7 +712,6 @@ public class TeacherServiceImpl implements TeacherService {
 
         return result;
     }
-
     @Override
     @Transactional(rollbackFor = Exception.class)
     public int saveGrades(Long courseId, List<Map<String, Object>> grades) {
@@ -768,7 +767,7 @@ public class TeacherServiceImpl implements TeacherService {
                 grade.setTrainingGrade(new BigDecimal(gradeEntry.get("trainingGrade").toString()));
             }
 
-            // 计算最终成绩：平时*0.3 + 考试*0.4 + 实验*0.3（仅当字段都存在时）
+            // 计算最终成绩：平时*0.3 + 考试*0.4 + 实验*0.3
             if (grade.getUsualGrade() != null && grade.getExamGrade() != null && grade.getExperimentGrade() != null) {
                 BigDecimal finalGrade = grade.getUsualGrade().multiply(BigDecimal.valueOf(0.3))
                         .add(grade.getExamGrade().multiply(BigDecimal.valueOf(0.4)))
@@ -793,6 +792,46 @@ public class TeacherServiceImpl implements TeacherService {
 
         log.info("教师 {} 为课程 {} 录入了 {} 条成绩", teacherId, courseId, updatedCount);
         return updatedCount;
+    }
+
+    @Override
+    public List<Map<String, Object>> getGrades(Long courseId) {
+        // 1. 查找课程计划
+        QueryWrapper<CoursePlan> planQw = new QueryWrapper<>();
+        planQw.eq("course_id", courseId);
+        CoursePlan plan = coursePlanMapper.selectOne(planQw);
+        if (plan == null) {
+            return new ArrayList<>();
+        }
+
+        // 2. 查询所有选课学生
+        QueryWrapper<StudentCourseEnrollment> enrollQw = new QueryWrapper<>();
+        enrollQw.eq("course_plan_id", plan.getId());
+        List<StudentCourseEnrollment> enrollments = enrollmentMapper.selectList(enrollQw);
+
+        // 3. 为每个学生查成绩
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (StudentCourseEnrollment enrollment : enrollments) {
+            SysUser student = sysUserMapper.selectById(enrollment.getStudentId());
+            if (student == null) continue;
+
+            QueryWrapper<StudentGrade> gradeQw = new QueryWrapper<>();
+            gradeQw.eq("student_id", enrollment.getStudentId())
+                    .eq("course_plan_id", plan.getId());
+            StudentGrade grade = studentGradeMapper.selectOne(gradeQw);
+
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("studentId", student.getId());
+            item.put("userName", student.getRealName() != null ? student.getRealName() : student.getUsername());
+            item.put("usualGrade", grade != null ? grade.getUsualGrade() : null);
+            item.put("examGrade", grade != null ? grade.getExamGrade() : null);
+            item.put("experimentGrade", grade != null ? grade.getExperimentGrade() : null);
+            item.put("trainingGrade", grade != null ? grade.getTrainingGrade() : null);
+            item.put("finalGrade", grade != null ? grade.getFinalGrade() : null);
+            result.add(item);
+        }
+
+        return result;
     }
 
     // ==================== 实验任务管理 ====================

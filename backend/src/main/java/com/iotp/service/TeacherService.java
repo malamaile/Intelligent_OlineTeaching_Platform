@@ -79,6 +79,14 @@ public interface TeacherService {
      */
     int saveGrades(Long courseId, List<Map<String, Object>> grades);
 
+    /**
+     * 查询课程成绩
+     *
+     * @param courseId 课程 ID
+     * @return 成绩列表，包含学生信息和各分项成绩
+     */
+    List<Map<String, Object>> getGrades(Long courseId);
+
     // ==================== 实验任务管理 ====================
 
     /**

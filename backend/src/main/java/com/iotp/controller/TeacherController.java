@@ -121,6 +121,17 @@ public class TeacherController {
     }
 
     /**
+     * 查询课程成绩
+     *
+     * GET /teacher/courses/{courseId}/grades
+     */
+    @GetMapping("/courses/{courseId}/grades")
+    public Result<List<Map<String, Object>>> getGrades(@PathVariable Long courseId) {
+        List<Map<String, Object>> grades = teacherService.getGrades(courseId);
+        return Result.ok(grades);
+    }
+
+    /**
      * 录入/修改成绩
      *
      * POST /teacher/courses/{courseId}/grades

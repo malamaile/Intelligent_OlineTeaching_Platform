@@ -26,6 +26,10 @@ export function getCourseProgress(courseId) {
   return http.get(`/teacher/courses/${courseId}/progress`)
 }
 
+export function getGrades(courseId) {
+  return http.get(`/teacher/courses/${courseId}/grades`)
+}
+
 export function saveGrades(courseId, data) {
   return http.post(`/teacher/courses/${courseId}/grades`, data)
 }

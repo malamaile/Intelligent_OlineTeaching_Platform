@@ -1,7 +1,7 @@
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getTeacherCourses, createCourse, updateCourse, deleteCourse, saveGrades } from '@/api/teacher'
+import { getTeacherCourses, createCourse, updateCourse, deleteCourse, getGrades, saveGrades, exportGrades } from '@/api/teacher'
 
 const loading = ref(false)
 const courses = ref([])
@@ -92,14 +92,16 @@ async function handleDelete(row) {
 const gradeVisible = ref(false)
 const gradeCourse = ref(null)
 const gradeList = ref([])
+const hasExperiment = computed(() => gradeList.value.some(s => s.experimentGrade != null))
+const hasTraining = computed(() => gradeList.value.some(s => s.trainingGrade != null))
 
 async function openGrades(row) {
   gradeCourse.value = row
   gradeVisible.value = true
+  gradeList.value = []
   try {
-    const { getCourseProgress } = await import('@/api/teacher')
-    const res = await getCourseProgress(row.courseId)
-    gradeList.value = (res.data && (res.data.students || res.data.records)) || []
+    const res = await getGrades(row.courseId)
+    gradeList.value = res.data || []
   } catch {
     gradeList.value = []
   }
@@ -113,6 +115,7 @@ async function handleGradeSave() {
       usualGrade: s.usualGrade ?? s.dailyScore,
       examGrade: s.examGrade ?? s.examScore,
       experimentGrade: s.experimentGrade ?? s.experimentScore,
+      trainingGrade: s.trainingGrade,
     })))
     ElMessage.success('成绩保存成功')
     gradeVisible.value = false
@@ -120,8 +123,20 @@ async function handleGradeSave() {
 }
 
 // 导出成绩
-function handleExport(row) {
-  ElMessage.info('导出功能开发中')
+async function handleExport(row) {
+  try {
+    const res = await exportGrades(row.courseId)
+    const blob = res.data
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${row.courseName}_成绩表.xlsx`
+    a.click()
+    URL.revokeObjectURL(url)
+    ElMessage.success('导出成功')
+  } catch {
+    ElMessage.error('导出失败')
+  }
 }
 
 onMounted(fetchCourses)
@@ -258,14 +273,19 @@ onMounted(fetchCourses)
             <el-input-number v-model="row.examGrade" :min="0" :max="100" size="small" controls-position="right" />
           </template>
         </el-table-column>
-        <el-table-column label="实验成绩" width="100">
+        <el-table-column v-if="hasExperiment" label="实验成绩" width="100">
           <template #default="{ row }">
             <el-input-number v-model="row.experimentGrade" :min="0" :max="100" size="small" controls-position="right" />
           </template>
         </el-table-column>
+        <el-table-column v-if="hasTraining" label="实训成绩" width="100">
+          <template #default="{ row }">
+            <el-input-number v-model="row.trainingGrade" :min="0" :max="100" size="small" controls-position="right" />
+          </template>
+        </el-table-column>
         <el-table-column label="总评" width="80">
           <template #default="{ row }">
-            {{ Math.round(((row.usualGrade || 0) * 0.3 + (row.examGrade || 0) * 0.5 + (row.experimentGrade || 0) * 0.2) * 10) / 10 || '-' }}
+            {{ row.finalGrade != null ? row.finalGrade : (Math.round(((row.usualGrade || 0) * 0.3 + (row.examGrade || 0) * 0.4 + ((row.experimentGrade || row.trainingGrade || 0) * 0.3)) * 10) / 10 || '-') }}
           </template>
         </el-table-column>
       </el-table>
