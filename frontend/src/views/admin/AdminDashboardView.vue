@@ -74,18 +74,42 @@ async function fetchDashboard() {
       getResourceAuditStatistics(),
       getAuditCourseLogs({ page: 1, pageSize: 5 }),
     ])
-    if (overviewRes.data) stats.value = { ...stats.value, ...overviewRes.data }
+
+    // 核心统计数据（来自 /admin/analytics/overview）
+    if (overviewRes.data) {
+      stats.value = { ...stats.value, ...overviewRes.data }
+    }
+
+    // 审核汇总（聚合三个模块的统计数据）
+    let todayApproved = 0
+    let todayRejected = 0
+    let thisWeekTotal = 0
+
     if (courseStatsRes.data) {
       auditSummary.value.pendingCourses = courseStatsRes.data.pending || 0
-      auditSummary.value.todayApproved = (auditSummary.value.todayApproved || 0) + (courseStatsRes.data.todayApproved || 0)
+      todayApproved += courseStatsRes.data.todayApproved || 0
+      todayRejected += courseStatsRes.data.todayRejected || 0
+      thisWeekTotal += courseStatsRes.data.thisWeekTotal || 0
     }
     if (taskStatsRes.data) {
       auditSummary.value.pendingTasks = taskStatsRes.data.pending || 0
+      todayApproved += taskStatsRes.data.todayApproved || 0
+      todayRejected += taskStatsRes.data.todayRejected || 0
+      thisWeekTotal += taskStatsRes.data.thisWeekTotal || 0
     }
     if (resourceStatsRes.data) {
       auditSummary.value.pendingResources = resourceStatsRes.data.pending || 0
+      todayApproved += resourceStatsRes.data.todayApproved || 0
+      todayRejected += resourceStatsRes.data.todayRejected || 0
+      thisWeekTotal += resourceStatsRes.data.thisWeekTotal || 0
     }
+
+    auditSummary.value.todayApproved = todayApproved
+    auditSummary.value.todayRejected = todayRejected
+    auditSummary.value.thisWeekTotal = thisWeekTotal
     auditSummary.value.pendingAudits = auditSummary.value.pendingCourses + auditSummary.value.pendingTasks + auditSummary.value.pendingResources
+
+    // 操作日志
     if (logsRes.data) {
       recentLogs.value = logsRes.data.records || logsRes.data || []
     }
@@ -233,13 +257,13 @@ onMounted(fetchDashboard)
               </el-tag>
               <div class="log-body">
                 <span class="log-operator">{{ log.operator || log.auditor }}</span>
-                <span class="log-action">{{ log.action || log.comment }}</span>
+                <span class="log-action">{{ log.comment || log.result || log.action }}</span>
               </div>
               <div class="log-right">
-                <el-tag v-if="log.result === '通过' || log.action === 'APPROVE'" type="success" size="small" effect="plain">通过</el-tag>
-                <el-tag v-else-if="log.result === '驳回' || log.action === 'REJECT'" type="danger" size="small" effect="plain">驳回</el-tag>
-                <span v-else class="log-result">{{ log.result }}</span>
-                <span class="log-time">{{ log.time }}</span>
+                <el-tag v-if="log.result === '通过' || log.actionShort === 'APPROVE' || log.action === 'APPROVED'" type="success" size="small" effect="plain">通过</el-tag>
+                <el-tag v-else-if="log.result === '驳回' || log.actionShort === 'REJECT' || log.action === 'REJECTED'" type="danger" size="small" effect="plain">驳回</el-tag>
+                <span v-else class="log-result">{{ log.result || log.action || log.comment }}</span>
+                <span class="log-time">{{ log.time || log.createTime }}</span>
               </div>
             </div>
           </div>

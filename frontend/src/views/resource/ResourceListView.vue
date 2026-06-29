@@ -1,6 +1,7 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import { getResources, toggleFavorite, removeFavorite } from '@/api/student'
+import http from '@/api'
 import { ElMessage } from 'element-plus'
 
 // ========== 列表 ==========
@@ -16,11 +17,11 @@ const searchForm = reactive({
 
 const categoryOptions = [
   { label: '全部类型', value: '' },
-  { label: '课件', value: 'COURSEWARE' },
-  { label: '习题', value: 'EXERCISE' },
-  { label: '视频', value: 'VIDEO' },
-  { label: '文档', value: 'DOCUMENT' },
-  { label: '其他', value: 'OTHER' },
+  { label: '课件', value: 1 },
+  { label: '习题', value: 2 },
+  { label: '视频', value: 3 },
+  { label: '文档', value: 4 },
+  { label: '其他', value: 5 },
 ]
 
 const scopeOptions = [
@@ -69,8 +70,23 @@ async function handleToggleFavorite(resource) {
   }
 }
 
-function handleDownload(resource) {
-  window.open(`/api/v1/student/resources/${resource.resourceId}/download`)
+async function handleDownload(resource) {
+  try {
+    const response = await http.get(`/student/resources/${resource.resourceId}/download`, {
+      responseType: 'blob',
+    })
+    const url = window.URL.createObjectURL(new Blob([response.data]))
+    const link = document.createElement('a')
+    link.href = url
+    link.setAttribute('download', resource.name || 'download')
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.URL.revokeObjectURL(url)
+    ElMessage.success('开始下载')
+  } catch {
+    ElMessage.error('下载失败')
+  }
 }
 
 // ========== 预览 ==========
@@ -186,11 +202,16 @@ onMounted(fetchResources)
               </div>
             </div>
             <div class="rc-actions">
-              <el-button circle :type="res.isFavorited ? 'warning' : ''" @click="handleToggleFavorite(res)">
+              <el-button size="small" :type="res.isFavorited ? 'warning' : 'default'" @click="handleToggleFavorite(res)">
                 <el-icon><StarFilled v-if="res.isFavorited" /><Star v-else /></el-icon>
+                {{ res.isFavorited ? '已收藏' : '收藏' }}
               </el-button>
-              <el-button circle @click="openPreview(res)"><el-icon><View /></el-icon></el-button>
-              <el-button circle @click="handleDownload(res)"><el-icon><Download /></el-icon></el-button>
+              <el-button size="small" type="primary" @click="openPreview(res)">
+                <el-icon><View /></el-icon>预览
+              </el-button>
+              <el-button size="small" type="primary" @click="handleDownload(res)">
+                <el-icon><Download /></el-icon>下载
+              </el-button>
             </div>
           </div>
         </div>
@@ -216,11 +237,16 @@ onMounted(fetchResources)
             <span class="rr-downloads">{{ res.downloadCount }} 次下载</span>
             <span class="rr-date">{{ res.uploadTime }}</span>
             <span class="rr-actions">
-              <el-button text :type="res.isFavorited ? 'warning' : ''" @click="handleToggleFavorite(res)">
+              <el-button size="small" :type="res.isFavorited ? 'warning' : 'default'" @click="handleToggleFavorite(res)">
                 <el-icon><StarFilled v-if="res.isFavorited" /><Star v-else /></el-icon>
+                {{ res.isFavorited ? '已收藏' : '收藏' }}
               </el-button>
-              <el-button text type="primary" @click="openPreview(res)">预览</el-button>
-              <el-button text type="primary" @click="handleDownload(res)">下载</el-button>
+              <el-button size="small" type="primary" @click="openPreview(res)">
+                <el-icon><View /></el-icon>预览
+              </el-button>
+              <el-button size="small" type="primary" @click="handleDownload(res)">
+                <el-icon><Download /></el-icon>下载
+              </el-button>
             </span>
           </div>
         </div>
@@ -391,10 +417,17 @@ onMounted(fetchResources)
 .rc-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 6px;
+  gap: 8px;
   margin-top: 12px;
   padding-top: 12px;
   border-top: 1px solid #f2f2f2;
+}
+
+.rc-actions .el-button,
+.rr-actions .el-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 /* 列表视图 */

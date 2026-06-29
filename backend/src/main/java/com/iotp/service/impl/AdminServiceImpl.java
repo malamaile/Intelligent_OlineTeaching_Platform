@@ -390,15 +390,25 @@ public class AdminServiceImpl implements AdminService {
         }
         if (updates.containsKey("department")) {
             Object deptVal = updates.get("department");
-            if (deptVal != null) {
-                user.setDepartmentId(Long.valueOf(deptVal.toString()));
+            String deptStr = deptVal != null ? deptVal.toString().trim() : "";
+            if (!deptStr.isEmpty()) {
+                // 尝试按 ID 解析，否则按名称查找
+                try {
+                    user.setDepartmentId(Long.valueOf(deptStr));
+                } catch (NumberFormatException e) {
+                    QueryWrapper<SysDepartment> deptQw = new QueryWrapper<>();
+                    deptQw.eq("dept_name", deptStr);
+                    SysDepartment dept = sysDepartmentMapper.selectOne(deptQw);
+                    user.setDepartmentId(dept != null ? dept.getId() : null);
+                }
             } else {
                 user.setDepartmentId(null);
             }
         }
         if (updates.containsKey("className")) {
-            String clsName = (String) updates.get("className");
-            if (clsName != null && !clsName.isEmpty()) {
+            Object classVal = updates.get("className");
+            String clsName = classVal != null ? classVal.toString().trim() : "";
+            if (!clsName.isEmpty()) {
                 QueryWrapper<SysClass> classQw = new QueryWrapper<>();
                 classQw.eq("class_name", clsName);
                 SysClass sysClass = sysClassMapper.selectOne(classQw);
@@ -518,6 +528,7 @@ public class AdminServiceImpl implements AdminService {
             planMap.put("teacherName", getUserRealName(plan.getTeacherId()));
             planMap.put("departmentId", course != null ? course.getDepartmentId() : null);
             planMap.put("departmentName", getDepartmentName(course != null ? course.getDepartmentId() : null));
+            planMap.put("submitTime", plan.getCreateTime());                                // 提交时间
             planMap.put("auditStatus", plan.getAuditStatus());
             planMap.put("auditComment", plan.getAuditComment());
             planMap.put("auditTime", plan.getAuditTime());
@@ -642,18 +653,50 @@ public class AdminServiceImpl implements AdminService {
 
         List<Map<String, Object>> logList = new ArrayList<>();
         for (SysAuditLog al : logs) {
+            // 查找关联的教师名称（通过 CoursePlan）
+            String teacherName = "";
+            if ("COURSE_PLAN".equals(al.getBizType()) && al.getBizId() != null) {
+                CoursePlan relatedPlan = coursePlanMapper.selectById(al.getBizId());
+                if (relatedPlan != null) {
+                    teacherName = getUserRealName(relatedPlan.getTeacherId());
+                }
+            }
+
+            // 动作简称（前端用）
+            String actionShort = "";
+            if (AUDIT_APPROVED.equals(al.getAction())) {
+                actionShort = "APPROVE";
+            } else if (AUDIT_REJECTED.equals(al.getAction())) {
+                actionShort = "REJECT";
+            }
+
+            // 结果中文
+            String resultCn = "";
+            if (AUDIT_APPROVED.equals(al.getAction())) {
+                resultCn = "通过";
+            } else if (AUDIT_REJECTED.equals(al.getAction())) {
+                resultCn = "驳回";
+            }
+
             Map<String, Object> item = new LinkedHashMap<>();
             item.put("id", al.getId());
             item.put("bizType", al.getBizType());
             item.put("bizId", al.getBizId());
             item.put("bizName", al.getBizName());
-            item.put("action", al.getAction());
+            item.put("courseName", al.getBizName());       // 前端课程审核日志用
+            item.put("teacherName", teacherName);           // 授课教师
+            item.put("action", al.getAction());             // "APPROVED" / "REJECTED"
+            item.put("actionShort", actionShort);           // "APPROVE" / "REJECT"（前端判断用）
+            item.put("result", resultCn);                   // "通过" / "驳回"（前端显示用）
             item.put("operatorId", al.getOperatorId());
             item.put("operatorName", al.getOperatorName());
+            item.put("operator", al.getOperatorName());     // 前端仪表盘用
+            item.put("auditor", al.getOperatorName());      // 前端审核日志用
             item.put("comment", al.getComment());
             item.put("beforeStatus", al.getBeforeStatus());
             item.put("afterStatus", al.getAfterStatus());
             item.put("createTime", al.getCreateTime());
+            item.put("time", al.getCreateTime());           // 前端显示用
             logList.add(item);
         }
 
@@ -733,12 +776,39 @@ public class AdminServiceImpl implements AdminService {
             bySemester.add(semStat);
         }
 
+        // 4. 今日审核统计（基于 SysAuditLog）
+        LocalDate today = LocalDate.now();
+        LocalDateTime todayStart = today.atStartOfDay();
+        LocalDateTime todayEnd = today.atTime(23, 59, 59);
+
+        QueryWrapper<SysAuditLog> todayApprovedQw = new QueryWrapper<>();
+        todayApprovedQw.eq("biz_type", "COURSE_PLAN")
+                .eq("action", AUDIT_APPROVED)
+                .between("create_time", todayStart, todayEnd);
+        long todayApproved = sysAuditLogMapper.selectCount(todayApprovedQw);
+
+        QueryWrapper<SysAuditLog> todayRejectedQw = new QueryWrapper<>();
+        todayRejectedQw.eq("biz_type", "COURSE_PLAN")
+                .eq("action", AUDIT_REJECTED)
+                .between("create_time", todayStart, todayEnd);
+        long todayRejected = sysAuditLogMapper.selectCount(todayRejectedQw);
+
+        // 本周审核总数
+        LocalDate weekStart = today.with(java.time.DayOfWeek.MONDAY);
+        QueryWrapper<SysAuditLog> weekQw = new QueryWrapper<>();
+        weekQw.eq("biz_type", "COURSE_PLAN")
+                .between("create_time", weekStart.atStartOfDay(), todayEnd);
+        long thisWeekTotal = sysAuditLogMapper.selectCount(weekQw);
+
         // 组装结果
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("total", total);
         result.put("approved", approved);
         result.put("pending", pending);
         result.put("rejected", rejected);
+        result.put("todayApproved", todayApproved);
+        result.put("todayRejected", todayRejected);
+        result.put("thisWeekTotal", thisWeekTotal);
         result.put("byDepartment", byDepartment);
         result.put("bySemester", bySemester);
 
@@ -775,7 +845,9 @@ public class AdminServiceImpl implements AdminService {
             taskMap.put("taskId", task.getId());
             taskMap.put("projectId", task.getProjectId());
             taskMap.put("projectName", project != null ? project.getProjectName() : "");
+            taskMap.put("title", project != null ? project.getProjectName() : "");  // 前端用
             taskMap.put("projectType", project != null ? project.getProjectType() : "");
+            taskMap.put("taskType", project != null ? project.getProjectType() : ""); // 前端用
             taskMap.put("classId", task.getClassId());
             taskMap.put("className", getClassName(task.getClassId()));
             taskMap.put("teacherId", task.getTeacherId());
@@ -929,11 +1001,38 @@ public class AdminServiceImpl implements AdminService {
         subTotalQw.in("status", "SUBMITTED", "GRADED", "RETURNED");
         submissionTotal = submissionMapper.selectCount(subTotalQw);
 
+        // 4. 今日审核统计
+        LocalDate today = LocalDate.now();
+        LocalDateTime todayStart = today.atStartOfDay();
+        LocalDateTime todayEnd = today.atTime(23, 59, 59);
+
+        QueryWrapper<SysAuditLog> todayApprovedQw = new QueryWrapper<>();
+        todayApprovedQw.eq("biz_type", "EXPERIMENT_TASK")
+                .eq("action", AUDIT_APPROVED)
+                .between("create_time", todayStart, todayEnd);
+        long todayApproved = sysAuditLogMapper.selectCount(todayApprovedQw);
+
+        QueryWrapper<SysAuditLog> todayRejectedQw = new QueryWrapper<>();
+        todayRejectedQw.eq("biz_type", "EXPERIMENT_TASK")
+                .eq("action", AUDIT_REJECTED)
+                .between("create_time", todayStart, todayEnd);
+        long todayRejected = sysAuditLogMapper.selectCount(todayRejectedQw);
+
+        // 本周审核总数
+        LocalDate weekStart = today.with(java.time.DayOfWeek.MONDAY);
+        QueryWrapper<SysAuditLog> weekQw = new QueryWrapper<>();
+        weekQw.eq("biz_type", "EXPERIMENT_TASK")
+                .between("create_time", weekStart.atStartOfDay(), todayEnd);
+        long thisWeekTotal = sysAuditLogMapper.selectCount(weekQw);
+
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("total", total);
         result.put("approved", approved);
         result.put("pending", pending);
         result.put("rejected", rejected);
+        result.put("todayApproved", todayApproved);
+        result.put("todayRejected", todayRejected);
+        result.put("thisWeekTotal", thisWeekTotal);
         result.put("overallPassRate", total > 0
                 ? BigDecimal.valueOf(approved).multiply(BigDecimal.valueOf(100))
                 .divide(BigDecimal.valueOf(total), 2, RoundingMode.HALF_UP)
@@ -966,12 +1065,16 @@ public class AdminServiceImpl implements AdminService {
 
         List<Map<String, Object>> resList = new ArrayList<>();
         for (TeachingResource res : resources) {
+            String categoryName = getResourceCategoryName(res.getCategoryId());
+
             Map<String, Object> resMap = new LinkedHashMap<>();
             resMap.put("resourceId", res.getId());
             resMap.put("resourceName", res.getResourceName());
+            resMap.put("name", res.getResourceName());           // 前端用
             resMap.put("description", res.getDescription());
             resMap.put("categoryId", res.getCategoryId());
-            resMap.put("categoryName", getResourceCategoryName(res.getCategoryId()));
+            resMap.put("categoryName", categoryName);
+            resMap.put("type", categoryName);                    // 前端用（课件/习题/视频/文档/其他）
             resMap.put("fileUrl", res.getFileUrl());
             resMap.put("fileName", res.getFileName());
             resMap.put("fileType", res.getFileType());
@@ -979,13 +1082,16 @@ public class AdminServiceImpl implements AdminService {
             resMap.put("teacherId", res.getTeacherId());
             resMap.put("teacherName", getUserRealName(res.getTeacherId()));
             resMap.put("visibility", res.getVisibility());
+            resMap.put("scope", res.getVisibility());            // 前端用
             resMap.put("courseId", res.getCourseId());
+            resMap.put("courseName", getCourseName(res.getCourseId())); // 前端用
             resMap.put("viewCount", res.getViewCount());
             resMap.put("downloadCount", res.getDownloadCount());
             resMap.put("auditStatus", res.getAuditStatus());
             resMap.put("auditComment", res.getAuditComment());
             resMap.put("auditTime", res.getAuditTime());
             resMap.put("createTime", res.getCreateTime());
+            resMap.put("submitTime", res.getCreateTime());       // 前端课程审核用
             resList.add(resMap);
         }
 
@@ -1119,10 +1225,37 @@ public class AdminServiceImpl implements AdminService {
                 })
                 .collect(Collectors.toList());
 
+        // 6. 今日审核统计
+        LocalDate today = LocalDate.now();
+        LocalDateTime todayStart = today.atStartOfDay();
+        LocalDateTime todayEnd = today.atTime(23, 59, 59);
+
+        QueryWrapper<SysAuditLog> todayApprovedQw = new QueryWrapper<>();
+        todayApprovedQw.eq("biz_type", "TEACHING_RESOURCE")
+                .eq("action", AUDIT_APPROVED)
+                .between("create_time", todayStart, todayEnd);
+        long todayApproved = sysAuditLogMapper.selectCount(todayApprovedQw);
+
+        QueryWrapper<SysAuditLog> todayRejectedQw = new QueryWrapper<>();
+        todayRejectedQw.eq("biz_type", "TEACHING_RESOURCE")
+                .eq("action", AUDIT_REJECTED)
+                .between("create_time", todayStart, todayEnd);
+        long todayRejected = sysAuditLogMapper.selectCount(todayRejectedQw);
+
+        // 本周审核总数
+        LocalDate weekStart = today.with(java.time.DayOfWeek.MONDAY);
+        QueryWrapper<SysAuditLog> weekQw = new QueryWrapper<>();
+        weekQw.eq("biz_type", "TEACHING_RESOURCE")
+                .between("create_time", weekStart.atStartOfDay(), todayEnd);
+        long thisWeekTotal = sysAuditLogMapper.selectCount(weekQw);
+
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("total", total);
         result.put("approved", approved);
         result.put("pending", total - approved);
+        result.put("todayApproved", todayApproved);
+        result.put("todayRejected", todayRejected);
+        result.put("thisWeekTotal", thisWeekTotal);
         result.put("totalDownloads", totalDownloads);
         result.put("totalViews", totalViews);
         result.put("byType", byType);
@@ -1372,21 +1505,78 @@ public class AdminServiceImpl implements AdminService {
 
         SysSemester targetSem = (semId != null) ? sysSemesterMapper.selectById(semId) : null;
 
-        // 2. 学生总数（统计 role 为 STUDENT 的用户数）
+        // 2. 用户统计（管理员工作台用）
         Long studentRoleId = getRoleIdByCode("STUDENT");
+        Long teacherRoleId = getRoleIdByCode("TEACHER");
+        Long adminRoleId = getRoleIdByCode("ADMIN");
+
+        // 用户总数（非删除）
+        QueryWrapper<SysUser> allUserQw = new QueryWrapper<>();
+        allUserQw.eq("is_deleted", 0);
+        long totalUsers = sysUserMapper.selectCount(allUserQw);
+
+        // 学生总数
         long totalStudents = 0;
+        long activeStudents = 0;
         if (studentRoleId != null) {
             QueryWrapper<SysUser> studentQw = new QueryWrapper<>();
-            studentQw.eq("role_id", studentRoleId);
+            studentQw.eq("role_id", studentRoleId).eq("is_deleted", 0);
             totalStudents = sysUserMapper.selectCount(studentQw);
+
+            QueryWrapper<SysUser> activeStudentQw = new QueryWrapper<>();
+            activeStudentQw.eq("role_id", studentRoleId).eq("status", 1).eq("is_deleted", 0);
+            activeStudents = sysUserMapper.selectCount(activeStudentQw);
         }
 
-        // 3. 课程总数（指定学期下的开课计划数）
-        long totalCourses = 0;
+        // 教师总数
+        long teachers = 0;
+        if (teacherRoleId != null) {
+            QueryWrapper<SysUser> teacherQw = new QueryWrapper<>();
+            teacherQw.eq("role_id", teacherRoleId).eq("is_deleted", 0);
+            teachers = sysUserMapper.selectCount(teacherQw);
+        }
+
+        // 管理员总数
+        long admins = 0;
+        if (adminRoleId != null) {
+            QueryWrapper<SysUser> adminQw = new QueryWrapper<>();
+            adminQw.eq("role_id", adminRoleId).eq("is_deleted", 0);
+            admins = sysUserMapper.selectCount(adminQw);
+        }
+
+        // 冻结/禁用账号数
+        QueryWrapper<SysUser> frozenQw = new QueryWrapper<>();
+        frozenQw.eq("status", 0).eq("is_deleted", 0);
+        long frozenAccounts = sysUserMapper.selectCount(frozenQw);
+
+        // 待审核总数（课程计划 + 实验任务 + 教学资源）
+        QueryWrapper<CoursePlan> pendingCourseQw = new QueryWrapper<>();
+        pendingCourseQw.eq("audit_status", AUDIT_PENDING);
+        long pendingCourses = coursePlanMapper.selectCount(pendingCourseQw);
+
+        QueryWrapper<ExperimentTask> pendingTaskQw = new QueryWrapper<>();
+        pendingTaskQw.eq("audit_status", AUDIT_PENDING);
+        long pendingTasks = experimentTaskMapper.selectCount(pendingTaskQw);
+
+        QueryWrapper<TeachingResource> pendingResQw = new QueryWrapper<>();
+        pendingResQw.eq("audit_status", AUDIT_PENDING);
+        long pendingResources = teachingResourceMapper.selectCount(pendingResQw);
+
+        long pendingAudits = pendingCourses + pendingTasks + pendingResources;
+
+        // 教学资源总数
+        long totalResources = teachingResourceMapper.selectCount(null);
+
+        // 3. 课程总数
+        // 全部课程计划数（所有学期）
+        long totalCourses = coursePlanMapper.selectCount(null);
+
+        // 指定学期下的开课计划数（用于学情分析）
+        long semesterCourses = 0;
         if (semId != null) {
             QueryWrapper<CoursePlan> courseQw = new QueryWrapper<>();
             courseQw.eq("semester_id", semId);
-            totalCourses = coursePlanMapper.selectCount(courseQw);
+            semesterCourses = coursePlanMapper.selectCount(courseQw);
         }
 
         // 4. 平均完成率和通过率（从成绩表中计算）
@@ -1476,8 +1666,11 @@ public class AdminServiceImpl implements AdminService {
             Map<String, Object> deptStat = new LinkedHashMap<>();
             deptStat.put("departmentId", dept.getId());
             deptStat.put("departmentName", dept.getDeptName());
+            deptStat.put("department", dept.getDeptName());          // 前端用
             deptStat.put("studentCount", deptStudents);
             deptStat.put("courseCount", deptCourses);
+            deptStat.put("completionRate", BigDecimal.ZERO);         // 待从成绩表计算
+            deptStat.put("passRate", BigDecimal.ZERO);               // 待从成绩表计算
             byDepartment.add(deptStat);
         }
 
@@ -1520,12 +1713,26 @@ public class AdminServiceImpl implements AdminService {
 
         // 组装结果
         Map<String, Object> result = new LinkedHashMap<>();
+        // 管理员工作台统计字段
+        result.put("totalUsers", totalUsers);
         result.put("totalStudents", totalStudents);
+        result.put("activeStudents", activeStudents);
+        result.put("teachers", teachers);
+        result.put("admins", admins);
+        result.put("frozenAccounts", frozenAccounts);
+        result.put("pendingAudits", pendingAudits);
+        result.put("pendingCourses", pendingCourses);
+        result.put("pendingTasks", pendingTasks);
+        result.put("pendingResources", pendingResources);
         result.put("totalCourses", totalCourses);
+        result.put("semesterCourses", semesterCourses);
+        result.put("totalResources", totalResources);
+        // 学情分析字段
         result.put("overallCompletionRate", overallCompletionRate);
         result.put("overallPassRate", overallPassRate);
         result.put("levelDistribution", levelDistribution);
         result.put("byDepartment", byDepartment);
+        result.put("deptStats", byDepartment);                       // 前端用别名
         result.put("trendData", trendData);
         result.put("semesterId", semId);
         result.put("semesterName", targetSem != null ? targetSem.getSemesterName() : "");
@@ -1607,9 +1814,12 @@ public class AdminServiceImpl implements AdminService {
             Map<String, Object> warnItem = new LinkedHashMap<>();
             warnItem.put("studentId", diag.getStudentId());
             warnItem.put("studentName", student.getRealName());
+            warnItem.put("userName", student.getRealName());          // 前端用
             warnItem.put("studentAccount", student.getUsername());
+            warnItem.put("account", student.getUsername());           // 前端用
             warnItem.put("departmentId", student.getDepartmentId());
             warnItem.put("departmentName", getDepartmentName(student.getDepartmentId()));
+            warnItem.put("department", getDepartmentName(student.getDepartmentId())); // 前端用
             warnItem.put("classId", student.getClassId());
             warnItem.put("className", getClassName(student.getClassId()));
             warnItem.put("riskLevel", diag.getDiagnosisLevel());
@@ -1659,22 +1869,43 @@ public class AdminServiceImpl implements AdminService {
         Map<String, Object> map = new LinkedHashMap<>();
         map.put("id", user.getId());
         map.put("username", user.getUsername());
+        map.put("account", user.getUsername());
         map.put("realName", user.getRealName());
+        map.put("userName", user.getRealName());
         map.put("email", user.getEmail());
         map.put("phone", user.getPhone());
         map.put("avatar", user.getAvatar());
         map.put("roleId", user.getRoleId());
-        map.put("roleName", getRoleName(user.getRoleId()));
+
+        // 同时填充 roleCode 和 roleName，避免前端因缺少字段误判
+        String[] roleCodeAndName = getRoleCodeAndName(user.getRoleId());
+        map.put("role", roleCodeAndName[0]);
+        map.put("roleName", roleCodeAndName[1]);
         map.put("departmentId", user.getDepartmentId());
         map.put("departmentName", getDepartmentName(user.getDepartmentId()));
+        map.put("department", getDepartmentName(user.getDepartmentId()));
         map.put("classId", user.getClassId());
         map.put("className", getClassName(user.getClassId()));
-        map.put("status", user.getStatus());
+
+        // 状态字段：同时返回整数值供后端使用 + 字符串供前端显示
+        Integer statusInt = user.getStatus();
+        map.put("status", statusInt != null ? statusInt : 1);
+        map.put("statusType", statusToCode(statusInt));
+
         map.put("loginFailCount", user.getLoginFailCount());
         map.put("lastLoginTime", user.getLastLoginTime());
         map.put("createTime", user.getCreateTime());
         map.put("updateTime", user.getUpdateTime());
         return map;
+    }
+
+    /**
+     * 状态整数值 → 状态编码字符串
+     */
+    private String statusToCode(Integer status) {
+        if (status == null || status == 1) return "ACTIVE";
+        if (status == 0) return "FROZEN";
+        return "LOCKED";
     }
 
     /**
@@ -1749,12 +1980,16 @@ public class AdminServiceImpl implements AdminService {
     }
 
     /**
-     * 获取角色名称
+     * 获取角色编码和名称
+     * @return [roleCode, roleName]
      */
-    private String getRoleName(Long roleId) {
-        if (roleId == null) return "";
+    private String[] getRoleCodeAndName(Long roleId) {
+        if (roleId == null) return new String[]{"", ""};
         SysRole role = sysRoleMapper.selectById(roleId);
-        return role != null ? role.getRoleName() : "";
+        if (role != null) {
+            return new String[]{role.getRoleCode() != null ? role.getRoleCode() : "", role.getRoleName()};
+        }
+        return new String[]{"", ""};
     }
 
     /**
@@ -1774,6 +2009,18 @@ public class AdminServiceImpl implements AdminService {
         if (departmentId == null) return "";
         SysDepartment dept = sysDepartmentMapper.selectById(departmentId);
         return dept != null ? dept.getDeptName() : "";
+    }
+
+    /**
+     * 根据部门名称查找部门ID
+     */
+    @Override
+    public Long getDepartmentIdByName(String deptName) {
+        if (deptName == null || deptName.trim().isEmpty()) return null;
+        QueryWrapper<SysDepartment> qw = new QueryWrapper<>();
+        qw.eq("dept_name", deptName.trim());
+        SysDepartment dept = sysDepartmentMapper.selectOne(qw);
+        return dept != null ? dept.getId() : null;
     }
 
     /**

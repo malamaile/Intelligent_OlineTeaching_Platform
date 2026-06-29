@@ -69,6 +69,8 @@ async function handleSave() {
     if (isEditing.value) {
       await updateUser(userForm.userId, {
         userName: userForm.userName,
+        department: userForm.department,
+        className: userForm.className,
         email: userForm.email,
         phone: userForm.phone,
       })
@@ -104,9 +106,9 @@ function handleFileChange(file) {
 
 // 状态操作
 async function handleToggleStatus(row) {
-  const action = row.status === 'ACTIVE' ? '冻结' : '启用'
+  const action = row.statusType === 'ACTIVE' ? '冻结' : '启用'
   await ElMessageBox.confirm(`确定${action}账号「${row.userName}」吗？`, `确认${action}`, { type: 'warning' })
-  const newStatus = row.status === 'ACTIVE' ? 'FROZEN' : 'ACTIVE'
+  const newStatus = row.statusType === 'ACTIVE' ? 'FROZEN' : 'ACTIVE'
   await updateUserStatus(row.userId, { status: newStatus })
   ElMessage.success(`已${action}`)
   await fetchUsers()
@@ -160,15 +162,15 @@ onMounted(fetchUsers)
         <el-table-column prop="email" label="邮箱" width="140" />
         <el-table-column label="状态" width="80">
           <template #default="{ row }">
-            <el-tag :type="statusConfig[row.status]?.type" size="small">{{ statusConfig[row.status]?.label }}</el-tag>
+            <el-tag :type="statusConfig[row.statusType]?.type" size="small">{{ statusConfig[row.statusType]?.label }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="lastLoginTime" label="最后登录" width="150" />
         <el-table-column label="操作" width="280" fixed="right">
           <template #default="{ row }">
             <el-button size="small" @click="openEdit(row)">编辑</el-button>
-            <el-button size="small" :type="row.status === 'ACTIVE' ? 'warning' : 'success'" @click="handleToggleStatus(row)">
-              {{ row.status === 'ACTIVE' ? '冻结' : '启用' }}
+            <el-button size="small" :type="row.statusType === 'ACTIVE' ? 'warning' : 'success'" @click="handleToggleStatus(row)">
+              {{ row.statusType === 'ACTIVE' ? '冻结' : '启用' }}
             </el-button>
             <el-button size="small" type="info" @click="handleResetPassword(row)">重置密码</el-button>
           </template>
@@ -252,7 +254,7 @@ onMounted(fetchUsers)
     <el-dialog v-model="importVisible" title="批量导入学生" width="500px">
       <el-alert title="请按模板格式上传Excel文件" type="info" :closable="false" show-icon style="margin-bottom:16px">
         <template #default>
-          <p style="font-size:12px">模板列：学号 | 姓名 | 院系 | 班级 | 初始密码 | 邮箱 | 手机号</p>
+          <p style="font-size:12px">模板列：账号 | 姓名 | 角色（STUDENT/TEACHER/ADMIN） | 密码 | 部门 | 班级 | 邮箱 | 手机号</p>
         </template>
       </el-alert>
       <el-upload drag :auto-upload="false" accept=".xlsx,.xls" :on-change="handleFileChange">

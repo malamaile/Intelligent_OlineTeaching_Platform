@@ -104,7 +104,7 @@ async function handleAudit(type, row, action) {
   try {
     const data = { action, comment }
     if (type === 'course') {
-      await auditCourse(row.courseId, data)
+      await auditCourse(row.planId, data)
       await fetchCourseAudit()
     } else if (type === 'task') {
       await auditTask(row.taskId, data)
@@ -169,8 +169,8 @@ onMounted(fetchCourseAudit)
             <el-table-column prop="teacherName" label="教师" width="80" />
             <el-table-column label="操作" width="60">
               <template #default="{ row }">
-                <el-tag :type="row.action === 'APPROVE' ? 'success' : 'danger'" size="small">
-                  {{ row.action === 'APPROVE' ? '通过' : '驳回' }}
+                <el-tag :type="row.actionShort === 'APPROVE' || row.action === 'APPROVED' ? 'success' : 'danger'" size="small">
+                  {{ row.result || (row.actionShort === 'APPROVE' || row.action === 'APPROVED' ? '通过' : '驳回') }}
                 </el-tag>
               </template>
             </el-table-column>
@@ -215,10 +215,18 @@ onMounted(fetchCourseAudit)
           </div>
           <el-table :data="resourceAuditList" v-loading="resourceLoading" stripe>
             <el-table-column prop="name" label="资源名称" min-width="160" />
-            <el-table-column label="类型" width="70"><template #default="{ row }">{{ {COURSEWARE:'课件',EXERCISE:'习题',VIDEO:'视频',DOCUMENT:'文档',OTHER:'其他'}[row.type] }}</template></el-table-column>
+            <el-table-column label="类型" width="70">
+              <template #default="{ row }">
+                {{ { COURSEWARE: '课件', EXERCISE: '习题', VIDEO: '视频', DOCUMENT: '文档', OTHER: '其他' }[row.type] || row.type || row.categoryName }}
+              </template>
+            </el-table-column>
             <el-table-column prop="teacherName" label="教师" width="80" />
             <el-table-column prop="courseName" label="关联课程" width="120" />
-            <el-table-column label="可见范围" width="80"><template #default="{ row }">{{ {CLASS_ONLY:'本班',DEPARTMENT_WIDE:'院系',SCHOOL_WIDE:'全校'}[row.scope] }}</template></el-table-column>
+            <el-table-column label="可见范围" width="80">
+              <template #default="{ row }">
+                {{ { CLASS_ONLY: '本班', DEPARTMENT_WIDE: '院系', SCHOOL_WIDE: '全校' }[row.scope] || row.scope || row.visibility }}
+              </template>
+            </el-table-column>
             <el-table-column label="操作" width="180">
               <template #default="{ row }">
                 <template v-if="row.auditStatus === 'PENDING'">

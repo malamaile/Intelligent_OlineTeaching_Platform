@@ -215,13 +215,27 @@ public class StudentController {
     }
 
     /**
-     * 下载教学资源（功能开发中）
+     * 下载教学资源
      *
      * GET /student/resources/{resourceId}/download
      */
     @GetMapping("/resources/{resourceId}/download")
-    public Result<String> downloadResource(@PathVariable Long resourceId) {
-        return Result.ok("功能开发中");
+    public void downloadResource(@PathVariable Long resourceId, javax.servlet.http.HttpServletResponse response) {
+        Object[] result = studentService.downloadResource(resourceId);
+        String fileName = (String) result[0];
+        byte[] fileBytes = (byte[]) result[1];
+
+        try {
+            response.setContentType("application/octet-stream");
+            response.setHeader("Content-Disposition",
+                    "attachment; filename*=UTF-8''" + java.net.URLEncoder.encode(fileName, "UTF-8").replace("+", "%20"));
+            response.setContentLength(fileBytes.length);
+            response.getOutputStream().write(fileBytes);
+            response.getOutputStream().flush();
+        } catch (java.io.IOException e) {
+            log.error("文件下载失败：{}", e.getMessage(), e);
+            throw new RuntimeException("文件下载失败", e);
+        }
     }
 
     /**
@@ -295,11 +309,25 @@ public class StudentController {
      * 格式：multipart/form-data，字段：file（头像文件）
      */
     @PostMapping("/profile/avatar")
-    public Result<Map<String, Object>> uploadAvatar(@RequestParam("file") MultipartFile file) {
-        String fileUrl = handleFileUpload(file, "avatars");
+    public Result<Map<String, Object>> uploadAvatar(
+            @RequestParam(value = "file", required = false) MultipartFile file,
+            @RequestParam(value = "avatar", required = false) MultipartFile avatarFile) {
+        // 兼容前端两种字段名：file / avatar
+        MultipartFile uploadFile = file != null && !file.isEmpty() ? file : avatarFile;
+        if (uploadFile == null || uploadFile.isEmpty()) {
+            return Result.badRequest("头像文件不能为空");
+        }
+
+        String fileUrl = handleFileUpload(uploadFile, "avatars");
         if (fileUrl == null) {
             return Result.serverError("头像上传失败");
         }
+
+        // 持久化头像 URL 到数据库
+        Long userId = UserContext.getUserId();
+        java.util.Map<String, Object> updates = new java.util.LinkedHashMap<>();
+        updates.put("avatar", fileUrl);
+        studentService.updateProfile(userId, updates);
 
         Map<String, Object> data = new java.util.LinkedHashMap<>();
         data.put("avatarUrl", fileUrl);
