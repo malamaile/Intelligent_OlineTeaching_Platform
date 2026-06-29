@@ -24,8 +24,8 @@ public class JwtUtil {
      */
     private static final String SECRET = "IOTP_2026_SuperSecretKey_ForJWT_Token_Generation_And_Validation_32chars";
 
-    /** Token 过期时间：30 分钟（单位：毫秒） */
-    private static final long EXPIRE_MS = 30 * 60 * 1000L;
+    /** Token 过期时间：24 小时（单位：毫秒） */
+    private static final long EXPIRE_MS = 24 * 60 * 60 * 1000L;
 
     /** 签发者标识 */
     private static final String ISSUER = "IOTP-Backend";

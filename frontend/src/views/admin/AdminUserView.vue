@@ -69,6 +69,8 @@ async function handleSave() {
     if (isEditing.value) {
       await updateUser(userForm.userId, {
         userName: userForm.userName,
+        department: userForm.department,
+        className: userForm.className,
         email: userForm.email,
         phone: userForm.phone,
       })

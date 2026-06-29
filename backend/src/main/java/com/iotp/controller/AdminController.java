@@ -73,15 +73,31 @@ public class AdminController {
         String userName = (String) body.get("userName");
         String role = (String) body.get("role");
         String password = (String) body.get("password");
-        Long department = body.get("department") != null
-                ? Long.valueOf(body.get("department").toString()) : null;
         String email = (String) body.get("email");
         String phone = (String) body.get("phone");
         String className = (String) body.get("className");
 
+        // department 支持 ID 或名称
+        Long department = parseDepartmentId(body.get("department"));
+
         Map<String, Object> data = adminService.createUser(account, userName, role,
                 password, department, email, phone, className);
         return Result.ok("用户创建成功", data);
+    }
+
+    /**
+     * 解析 department 参数：支持 Long ID 或 String 名称
+     */
+    private Long parseDepartmentId(Object deptVal) {
+        if (deptVal == null) return null;
+        String deptStr = deptVal.toString().trim();
+        if (deptStr.isEmpty()) return null;
+        try {
+            return Long.valueOf(deptStr);
+        } catch (NumberFormatException e) {
+            // 按名称查找
+            return adminService.getDepartmentIdByName(deptStr);
+        }
     }
 
     /**

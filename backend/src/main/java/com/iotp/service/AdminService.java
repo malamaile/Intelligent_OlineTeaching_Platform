@@ -80,6 +80,14 @@ public interface AdminService {
      * @param status 状态编码
      * @param reason 变更原因
      */
+    /**
+     * 根据部门名称查找部门ID
+     *
+     * @param deptName 部门名称
+     * @return 部门ID，不存在时返回 null
+     */
+    Long getDepartmentIdByName(String deptName);
+
     void updateUserStatus(Long userId, String status, String reason);
 
     /**

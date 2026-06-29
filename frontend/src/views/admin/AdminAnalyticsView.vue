@@ -16,6 +16,8 @@ const overview = ref({
   totalStudents: 0, totalCourses: 0,
   overallCompletionRate: 0, overallPassRate: 0,
   levelDistribution: { excellent: 0, good: 0, needImprove: 0 },
+  trendData: [],   // 趋势图数据
+  deptStats: [],   // 院系统计数据
 })
 
 // 院系统计表
@@ -26,24 +28,31 @@ const deptBarOption = computed(() => ({
   tooltip: { trigger: 'axis' },
   legend: { data: ['完成率', '通过率'], bottom: 0 },
   grid: { left: 50, right: 20, top: 10, bottom: 35 },
-  xAxis: { type: 'category', data: deptStats.value.map(d => d.department), axisLabel: { rotate: 15, fontSize: 10 } },
+  xAxis: { type: 'category', data: deptStats.value.map(d => d.department || d.departmentName || ''), axisLabel: { rotate: 15, fontSize: 10 } },
   yAxis: { type: 'value', max: 100 },
   series: [
-    { name: '完成率', type: 'bar', data: deptStats.value.map(d => d.completionRate), itemStyle: { color: '#409eff', borderRadius: [6, 6, 0, 0] }, barWidth: 28 },
-    { name: '通过率', type: 'bar', data: deptStats.value.map(d => d.passRate), itemStyle: { color: '#67c23a', borderRadius: [6, 6, 0, 0] }, barWidth: 28 },
+    { name: '完成率', type: 'bar', data: deptStats.value.map(d => d.completionRate || 0), itemStyle: { color: '#409eff', borderRadius: [6, 6, 0, 0] }, barWidth: 28 },
+    { name: '通过率', type: 'bar', data: deptStats.value.map(d => d.passRate || 0), itemStyle: { color: '#67c23a', borderRadius: [6, 6, 0, 0] }, barWidth: 28 },
   ],
 }))
 
-// 趋势图
-const trendOption = ref({
-  tooltip: { trigger: 'axis' },
-  grid: { left: 50, right: 20, top: 20, bottom: 30 },
-  xAxis: { type: 'category', data: ['3月', '4月', '5月', '6月'] },
-  yAxis: { type: 'value', max: 100 },
-  series: [
-    { name: '平均分', type: 'line', smooth: true, data: [76, 78, 80, 82], areaStyle: { opacity: 0.15 } },
-    { name: '完成率', type: 'line', smooth: true, data: [75, 77, 80, 78.5], areaStyle: { opacity: 0.15 }, lineStyle: { color: '#67c23a' }, itemStyle: { color: '#67c23a' } },
-  ],
+// 趋势图（基于后端返回的真实数据）
+const trendOption = computed(() => {
+  const months = (overview.value.trendData || []).map(d => d.month || '')
+  const scores = (overview.value.trendData || []).map(d => typeof d.avgScore === 'number' ? d.avgScore : (d.avgScore || 0))
+  const rates = (overview.value.trendData || []).map(d => typeof d.completionRate === 'number' ? d.completionRate : (d.completionRate || 0))
+  // 如果后端没有趋势数据，使用空数组
+  const hasData = months.length > 0
+  return {
+    tooltip: { trigger: 'axis' },
+    grid: { left: 50, right: 20, top: 20, bottom: 30 },
+    xAxis: { type: 'category', data: hasData ? months : [] },
+    yAxis: { type: 'value', max: 100 },
+    series: [
+      { name: '平均分', type: 'line', smooth: true, data: hasData ? scores : [], areaStyle: { opacity: 0.15 } },
+      { name: '完成率', type: 'line', smooth: true, data: hasData ? rates : [], areaStyle: { opacity: 0.15 }, lineStyle: { color: '#67c23a' }, itemStyle: { color: '#67c23a' } },
+    ],
+  }
 })
 
 // 预警名单
@@ -62,8 +71,10 @@ async function fetchData() {
     ])
     if (overviewRes.data) {
       overview.value = { ...overview.value, ...overviewRes.data }
-      if (overviewRes.data.deptStats) {
-        deptStats.value = overviewRes.data.deptStats
+      // 院系数据：优先取 deptStats，其次 byDepartment
+      const deptData = overviewRes.data.deptStats || overviewRes.data.byDepartment
+      if (deptData && deptData.length) {
+        deptStats.value = deptData
       }
     }
     if (warningsRes.data) {
@@ -136,8 +147,8 @@ onMounted(fetchData)
       <div class="card-title">
         预警名单
         <span style="font-size:12px;color:#909399;margin-left:8px">
-          高风险 {{ warnings.filter(w => w.riskLevel === 'HIGH').length }} 人 |
-          中风险 {{ warnings.filter(w => w.riskLevel === 'MEDIUM').length }} 人
+          高风险 {{ warnings.filter(w => w.riskLevel === 'HIGH' || w.riskLevel === '高危').length }} 人 |
+          中风险 {{ warnings.filter(w => w.riskLevel === 'MEDIUM' || w.riskLevel === '中危').length }} 人
         </span>
       </div>
       <el-table :data="warnings" stripe>
@@ -156,8 +167,8 @@ onMounted(fetchData)
         </el-table-column>
         <el-table-column label="风险" width="80">
           <template #default="{ row }">
-            <el-tag :type="row.riskLevel === 'HIGH' ? 'danger' : 'warning'" size="small">
-              {{ row.riskLevel === 'HIGH' ? '高风险' : '中风险' }}
+            <el-tag :type="(row.riskLevel === 'HIGH' || row.riskLevel === '高危') ? 'danger' : 'warning'" size="small">
+              {{ (row.riskLevel === 'HIGH' || row.riskLevel === '高危') ? '高风险' : (row.riskLevel === 'LOW' || row.riskLevel === '低危') ? '低风险' : '中风险' }}
             </el-tag>
           </template>
         </el-table-column>
