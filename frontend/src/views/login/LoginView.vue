@@ -63,7 +63,10 @@ async function handleLogin() {
 </script>
 
 <template>
+  <!-- 根容器 class 统一为 login-page，样式完全对应 -->
   <div class="login-page">
+    <!-- 背景蒙版层 -->
+    <div class="bg-mask"></div>
     <!-- 极光背景层 -->
     <div class="aurora-wrapper">
       <div class="aurora aurora-1" />
@@ -121,25 +124,37 @@ async function handleLogin() {
     </div>
   </div>
 </template>
+
 <style scoped>
-/* ========== 背景（与注册页统一：白 + 浅绿渐变） ========== */
+/* ========== 自定义自适应背景【修改区域】 ========== */
 .login-page {
   min-height: 100vh;
+  width: 100vw;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   position: relative;
   overflow: hidden;
-
-  background: linear-gradient(135deg, #ffffff 0%, #e9f7ef 45%, #d7f0e3 100%);
+  /* 自定义背景图 自适应核心配置 */
+  background-image: url("@/assets/images/login-bg.jpg");
+  background-repeat: no-repeat;
+  background-size: cover;
+  background-position: center center;
+}
+/* 半透明黑色蒙版，弱化背景，提升文字可读性 */
+.bg-mask {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background-color: rgba(0, 0, 0, 0.32);
 }
 
 /* ========== 极光（绿色柔光版） ========== */
 .aurora-wrapper {
   position: absolute;
   inset: 0;
-  z-index: 0;
+  z-index: 1;
   overflow: hidden;
 }
 
@@ -209,38 +224,38 @@ async function handleLogin() {
 .login-card {
   width: 420px;
   position: relative;
-  z-index: 1;
+  z-index: 2;
   background: rgba(255, 255, 255, 0.15);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  border-radius: 20px; padding: 44px 40px;
+  border-radius: 20px;
+  padding: 44px 40px;
   border: 1px solid rgba(255, 255, 255, 0.25);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.2);
-  }
+}
 .login-header {
-    text-align: center;
-    margin-bottom: 32px;
-    }
+  text-align: center;
+  margin-bottom: 32px;
+}
 .login-logo {
-    width: 56px;
-    height: 56px;
-    margin-bottom: 14px;
-    filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.3));
-    }
+  width: 56px;
+  height: 56px;
+  margin-bottom: 14px;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.3));
+}
 .login-header h2 {
-    font-size: 22px;
-    font-weight: 700;
-    color: #ffffff;
-    text-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
-    margin-bottom: 6px; letter-spacing: 1px;
-    }
+  font-size: 22px;
+  font-weight: 700;
+  color: #ffffff;
+  margin-bottom: 6px;
+  letter-spacing: 1px;
+}
 .login-header p {
   font-size: 12px;
   font-weight: 700;
-  color: rgba(255, 255, 255, 0.55);
-  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+  color: #ffffff;
   letter-spacing: 0.5px;
-  }
+}
 
 
 /* ========== 角色按钮 ========== */
@@ -327,31 +342,35 @@ async function handleLogin() {
 }
 
 .login-footer a {
-  color: #1f6f4a;
+  color: #ffffff;
 }
 
 .login-footer a:hover {
-  color: #165a3b;
+  color: #d0f3de;
 }
 
 .footer-divider {
-  color: #b7c9be;
+  color: #ffffff;
 }
 
 /* ========== 版权 ========== */
 .login-copyright {
   margin-top: 32px;
   font-size: 12px;
-  color: rgba(31, 111, 74, 0.35);
+  color: rgba(255, 255, 255, 0.65);
   position: relative;
-  z-index: 1;
+  z-index: 2;
 }
 
-/* ========== 响应式 ========== */
+/* ========== 移动端自适应 ========== */
 @media (max-width: 768px) {
   .login-card {
     width: 100%;
     margin: 0 20px;
+    padding: 32px 24px;
+  }
+  .aurora {
+    display: none;
   }
 }
 </style>

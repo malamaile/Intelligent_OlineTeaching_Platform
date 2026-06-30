@@ -164,14 +164,35 @@ const router = createRouter({
   ],
 })
 
-// 路由守卫：未登录跳转到登录页
+// 路由守卫：未登录跳转登录页，已登录根路径按角色分流
 router.beforeEach((to, from, next) => {
   const token = localStorage.getItem('token')
   const publicPages = ['/login', '/register', '/forgot-password', '/404']
+
   if (!token && !publicPages.includes(to.path)) {
     return next('/login')
   }
+
+  // 已登录用户访问根路径，按角色跳转
+  if (token && to.path === '/') {
+    const userInfo = getUserInfo()
+    const role = userInfo?.roleCode || userInfo?.role
+    if (role === 'ADMIN') return next('/admin/dashboard')
+    if (role === 'TEACHER') return next('/teacher/dashboard')
+    return next('/dashboard') // 学生或其他
+  }
+
   next()
 })
+
+/** 从 localStorage 读取用户信息 */
+function getUserInfo() {
+  try {
+    const raw = localStorage.getItem('userInfo')
+    return raw ? JSON.parse(raw) : null
+  } catch {
+    return null
+  }
+}
 
 export default router
