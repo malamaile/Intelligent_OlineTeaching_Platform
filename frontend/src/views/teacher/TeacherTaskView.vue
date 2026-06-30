@@ -1,7 +1,8 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getTeacherTasks, createTask, deleteTask, getTaskSubmissions, gradeSubmission, returnSubmission } from '@/api/teacher'
+import { getTeacherTasks, getTeacherCourses, createTask, updateTask, deleteTask, getTaskSubmissions, gradeSubmission, returnSubmission } from '@/api/teacher'
+import { uploadFile } from '@/api/common'
 
 const loading = ref(false)
 
@@ -31,13 +32,16 @@ async function fetchTasks() {
   }
 }
 
-// 创建任务弹窗
+// 创建/编辑任务弹窗
 const dialogVisible = ref(false)
+const isEditing = ref(false)
+const editingTaskId = ref(null)
 const saving = ref(false)
 const taskFormRef = ref(null)
+const courseOptions = ref([])
 const taskForm = reactive({
-  taskType: 'EXPERIMENT', title: '', courseName: '', className: '',
-  description: '', startTime: '', endTime: '', maxRetryCount: 2,
+  taskType: 'EXPERIMENT', title: '', courseName: '', className: '', courseId: null,
+  guideFileUrl: '', description: '', startTime: '', endTime: '', maxRetryCount: 2,
 })
 
 const rules = {
@@ -48,9 +52,146 @@ const rules = {
   endTime: [{ required: true, message: '请选择截止时间', trigger: 'change' }],
 }
 
-function openCreate() {
-  Object.assign(taskForm, { taskType: 'EXPERIMENT', title: '', courseName: '', className: '', description: '', startTime: '', endTime: '', maxRetryCount: 2 })
+async function loadCourseOptions() {
+  try {
+    const res = await getTeacherCourses({ page: 1, pageSize: 100 })
+    courseOptions.value = (res.data.records || res.data || []).map(c => ({
+      courseName: c.courseName,
+      className: c.className,
+      courseId: c.courseId || c.coursePlanId,
+    }))
+  } catch (e) { console.error('加载课程失败:', e); courseOptions.value = [] }
+}
+
+async function openCreate() {
+  isEditing.value = false
+  editingTaskId.value = null
+  Object.assign(taskForm, { taskType: 'EXPERIMENT', title: '', courseName: '', className: '', courseId: null, guideFileUrl: '', description: '', startTime: '', endTime: '', maxRetryCount: 2 })
+  initGuideFiles()
+  await loadCourseOptions()
   dialogVisible.value = true
+}
+
+async function openEdit(row) {
+  isEditing.value = true
+  editingTaskId.value = row.taskId
+  Object.assign(taskForm, {
+    taskType: row.taskType || 'EXPERIMENT',
+    title: row.title || '',
+    courseName: row.courseName || '',
+    className: row.className || '',
+    courseId: row.courseId || null,
+    guideFileUrl: row.guideFileUrl || '',
+    description: row.description || '',
+    startTime: row.startTime || '',
+    endTime: row.endTime || '',
+    maxRetryCount: row.maxRetryCount ?? 2,
+  })
+  initGuideFiles()
+  await loadCourseOptions()
+  dialogVisible.value = true
+}
+
+function onCourseSelect(course) {
+  taskForm.className = course.className || ''
+  taskForm.courseId = course.courseId
+}
+
+// 指导文档上传（支持多文件，存储为 JSON 数组字符串）
+const guideFileList = ref([])
+const uploadingFile = ref(false)
+
+function initGuideFiles() {
+  if (taskForm.guideFileUrl) {
+    try {
+      const arr = JSON.parse(taskForm.guideFileUrl)
+      guideFileList.value = arr.map((item, i) => {
+        if (typeof item === 'object' && item.url) {
+          return { uid: i, name: item.name || item.url.split('/').pop(), url: item.url }
+        }
+        return { uid: i, name: item.split('/').pop() || '文档', url: item }
+      })
+    } catch {
+      guideFileList.value = [{ uid: 0, name: taskForm.guideFileUrl.split('/').pop() || '文档', url: taskForm.guideFileUrl }]
+    }
+  } else {
+    guideFileList.value = []
+  }
+}
+
+function parseGuideFiles(guideFileUrl) {
+  if (!guideFileUrl) return []
+  try {
+    const arr = JSON.parse(guideFileUrl)
+    return arr.map(item => {
+      if (typeof item === 'object' && item.url) {
+        return { name: item.name || item.url.split('/').pop(), url: item.url }
+      }
+      return { name: item.split('/').pop() || '文档', url: item }
+    })
+  } catch {
+    return [{ name: guideFileUrl.split('/').pop() || '文档', url: guideFileUrl }]
+  }
+}
+
+function syncGuideFiles() {
+  taskForm.guideFileUrl = JSON.stringify(guideFileList.value.map(f => ({ name: f.name, url: f.url })))
+}
+
+async function handleGuideUpload(options) {
+  uploadingFile.value = true
+  try {
+    // 弹窗确认文件名，默认填充原始文件名
+    const originalName = options.file.name
+    const { value: customName } = await ElMessageBox.prompt('可修改文件名', '上传文件', {
+      inputValue: originalName,
+      confirmButtonText: '确认上传',
+      cancelButtonText: '取消',
+    })
+    if (!customName) { uploadingFile.value = false; return }
+    const formData = new FormData()
+    formData.append('file', options.file)
+    formData.append('module', 'guide')
+    formData.append('fileName', customName)
+    const res = await uploadFile(formData)
+    const url = res.data.fileUrl
+    guideFileList.value.push({ uid: Date.now(), name: customName, url })
+    syncGuideFiles()
+  } catch { /* 用户取消 */ } finally { uploadingFile.value = false }
+}
+
+function handleGuideRemove(file) {
+  guideFileList.value = guideFileList.value.filter(f => f.uid !== file.uid)
+  syncGuideFiles()
+}
+
+function handleGuidePreview(file) {
+  const url = file.url
+  const ext = url.split('.').pop().toLowerCase()
+  // PDF 直接浏览器打开
+  if (ext === 'pdf') {
+    window.open(url, '_blank')
+    return
+  }
+  // Office 文件用微软在线预览
+  if (['doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx'].includes(ext)) {
+    const fullUrl = location.origin + url
+    window.open('https://view.officeapps.live.com/op/view.aspx?src=' + encodeURIComponent(fullUrl), '_blank')
+    return
+  }
+  // 其他文件直接打开
+  window.open(url, '_blank')
+}
+
+function formatDate(str) {
+  if (!str) return '-'
+  const d = new Date(str)
+  const y = d.getFullYear()
+  const m = d.getMonth() + 1
+  const day = d.getDate()
+  const h = String(d.getHours()).padStart(2, '0')
+  const min = String(d.getMinutes()).padStart(2, '0')
+  return `${y}年${m}月${day}日 ${h}:${min}`
 }
 
 async function handleSave() {
@@ -58,11 +199,18 @@ async function handleSave() {
   if (!valid) return
   saving.value = true
   try {
-    await createTask(taskForm)
-    ElMessage.success('创建成功，请等待管理员审核')
+    if (isEditing.value) {
+      await updateTask(editingTaskId.value, taskForm)
+      ElMessage.success('修改成功')
+    } else {
+      await createTask(taskForm)
+      ElMessage.success('创建成功，请等待管理员审核')
+    }
     dialogVisible.value = false
     await fetchTasks()
-  } catch {} finally { saving.value = false }
+  } catch (e) {
+    console.error('提交失败:', e)
+  } finally { saving.value = false }
 }
 
 // 批阅弹窗
@@ -116,6 +264,15 @@ async function handleDelete(row) {
   await fetchTasks()
 }
 
+// 详情弹窗
+const detailVisible = ref(false)
+const detailTask = ref(null)
+
+function openDetail(row) {
+  detailTask.value = row
+  detailVisible.value = true
+}
+
 onMounted(fetchTasks)
 </script>
 
@@ -128,45 +285,58 @@ onMounted(fetchTasks)
 
     <div class="card-wrapper">
       <div class="search-bar">
-        <el-select v-model="searchForm.taskType" placeholder="任务类型" clearable style="width:110px">
+        <el-select v-model="searchForm.taskType" placeholder="任务类型" clearable style="width:100px">
           <el-option label="实验" value="EXPERIMENT" />
           <el-option label="实训" value="TRAINING" />
         </el-select>
-        <el-select v-model="searchForm.auditStatus" placeholder="审核状态" clearable style="width:110px">
+        <el-select v-model="searchForm.auditStatus" placeholder="审核状态" clearable style="width:100px">
           <el-option label="待审核" value="PENDING" />
           <el-option label="已通过" value="APPROVED" />
         </el-select>
         <el-button type="primary" @click="fetchTasks">查询</el-button>
       </div>
 
-      <el-table :data="tasks" v-loading="loading" stripe>
-        <el-table-column prop="title" label="任务名称" min-width="160" />
-        <el-table-column prop="taskType" label="类型" width="70">
-          <template #default="{ row }">{{ row.taskType === 'EXPERIMENT' ? '实验' : '实训' }}</template>
-        </el-table-column>
-        <el-table-column prop="courseName" label="所属课程" width="130" />
-        <el-table-column prop="className" label="班级" width="140" />
-        <el-table-column label="提交进度" width="140">
+      <el-table :data="tasks" v-loading="loading" stripe style="width:100%" :header-cell-style="{ textAlign:'center' }">
+        <el-table-column label="任务名称" min-width="150" show-overflow-tooltip>
           <template #default="{ row }">
-            <span>{{ row.gradedCount || 0 }}/{{ row.submittedCount || 0 }}/{{ row.studentCount || 0 }}</span>
-            <span style="font-size:12px;color:#909399"> （批/交/总）</span>
+            <el-link type="primary" @click="openDetail(row)">{{ row.title }}</el-link>
           </template>
         </el-table-column>
-        <el-table-column label="时间" width="200">
-          <template #default="{ row }">{{ row.startTime }} ~ {{ row.endTime }}</template>
+        <el-table-column prop="taskType" label="类型" width="65" align="center">
+          <template #default="{ row }">
+            <el-tag :type="row.taskType === 'EXPERIMENT' ? 'success' : 'warning'" size="small">{{ row.taskType === 'EXPERIMENT' ? '实验' : '实训' }}</el-tag>
+          </template>
         </el-table-column>
-        <el-table-column label="审核" width="90">
+        <el-table-column prop="courseName" label="所属课程" width="120" align="center" show-overflow-tooltip />
+        <el-table-column prop="className" label="班级" min-width="140" align="center" />
+        <el-table-column label="批/交/总" width="110" align="center">
+          <template #default="{ row }">
+            <span class="progress-text">{{ row.gradedCount || 0 }}/{{ row.submittedCount || 0 }}/{{ row.studentCount || 0 }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="起止时间" width="210" align="center">
+          <template #default="{ row }">
+            <div class="time-cell">
+              <div>{{ formatDate(row.startTime) }}</div>
+              <div class="time-sep">至</div>
+              <div>{{ formatDate(row.endTime) }}</div>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="审核" width="80" align="center">
           <template #default="{ row }">
             <el-tag :type="auditStatusConfig[row.auditStatus]?.type" size="small">
               {{ auditStatusConfig[row.auditStatus]?.label }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="220" fixed="right">
+        <el-table-column label="操作" width="210" fixed="right" align="center">
           <template #default="{ row }">
-            <el-button size="small" type="primary" @click="openReview(row)" :disabled="(row.submittedCount || 0) === 0">批阅</el-button>
-            <el-button size="small" @click="openCreate">编辑</el-button>
-            <el-button size="small" type="danger" @click="handleDelete(row)">删除</el-button>
+            <div class="action-btns">
+              <el-button size="small" type="success" @click="openReview(row)" :disabled="(row.submittedCount || 0) === 0">批阅</el-button>
+              <el-button size="small" type="primary" @click="openEdit(row)">编辑</el-button>
+              <el-button size="small" type="danger" @click="handleDelete(row)">删除</el-button>
+            </div>
           </template>
         </el-table-column>
       </el-table>
@@ -183,7 +353,7 @@ onMounted(fetchTasks)
     </div>
 
     <!-- 创建任务弹窗 -->
-    <el-dialog v-model="dialogVisible" title="创建实验/实训任务" width="640px" destroy-on-close>
+    <el-dialog v-model="dialogVisible" :title="isEditing ? '编辑实验/实训任务' : '创建实验/实训任务'" width="640px" destroy-on-close>
       <el-form ref="taskFormRef" :model="taskForm" :rules="rules" label-width="100px">
         <el-row :gutter="16">
           <el-col :span="12">
@@ -203,18 +373,14 @@ onMounted(fetchTasks)
         <el-row :gutter="16">
           <el-col :span="12">
             <el-form-item label="所属课程" prop="courseName">
-              <el-select v-model="taskForm.courseName" style="width:100%" placeholder="选择课程">
-                <el-option label="Java程序设计" value="Java程序设计" />
-                <el-option label="数据结构" value="数据结构" />
+              <el-select v-model="taskForm.courseName" style="width:100%" placeholder="选择课程" @change="(val) => onCourseSelect(courseOptions.find(c => c.courseName === val))">
+                <el-option v-for="c in courseOptions" :key="c.courseId" :label="c.courseName" :value="c.courseName" />
               </el-select>
             </el-form-item>
           </el-col>
           <el-col :span="12">
             <el-form-item label="目标班级" prop="className">
-              <el-select v-model="taskForm.className" style="width:100%" placeholder="选择班级">
-                <el-option label="软件工程2024-1班" value="软件工程2024-1班" />
-                <el-option label="软件工程2024-2班" value="软件工程2024-2班" />
-              </el-select>
+              <el-input v-model="taskForm.className" placeholder="选择课程后自动填充" readonly />
             </el-form-item>
           </el-col>
         </el-row>
@@ -238,9 +404,18 @@ onMounted(fetchTasks)
           <span style="margin-left:8px;font-size:12px;color:#909399">学生可重新提交的最大次数</span>
         </el-form-item>
         <el-form-item label="指导文档">
-          <el-upload :auto-upload="false" drag>
-            <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
-            <div class="el-upload__text">拖拽或<em>点击上传</em>指导文档</div>
+          <el-upload
+            :file-list="guideFileList"
+            :http-request="handleGuideUpload"
+            :on-remove="handleGuideRemove"
+            :on-preview="handleGuidePreview"
+            accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx"
+            list-type="text"
+          >
+            <el-button size="small" type="primary" :loading="uploadingFile">上传文档</el-button>
+            <template #tip>
+              <span class="upload-tip">支持 PDF/Word/PPT/Excel，可上传多个文件</span>
+            </template>
           </el-upload>
         </el-form-item>
       </el-form>
@@ -251,33 +426,69 @@ onMounted(fetchTasks)
     </el-dialog>
 
     <!-- 批阅弹窗 -->
-    <el-dialog v-model="reviewVisible" :title="reviewTask?.title + ' — 批阅'" width="780px">
-      <el-table :data="submissions" stripe v-loading="grading">
-        <el-table-column prop="userName" label="学生" width="80" />
-        <el-table-column prop="submitTime" label="提交时间" width="150" />
-        <el-table-column prop="status" label="状态" width="80">
+    <el-dialog v-model="reviewVisible" :title="reviewTask?.title + ' — 批阅'" width="620px">
+      <el-table :data="submissions" stripe v-loading="grading" :header-cell-style="{ textAlign:'center' }">
+        <el-table-column prop="userName" label="学生" width="70" align="center" />
+        <el-table-column label="提交时间" width="140" align="center">
+          <template #default="{ row }">{{ formatDate(row.submitTime) }}</template>
+        </el-table-column>
+        <el-table-column label="状态" width="75" align="center">
           <template #default="{ row }">
             <el-tag :type="row.status === 'GRADED' ? 'success' : row.status === 'RETURNED' ? 'danger' : 'warning'" size="small">
-              {{ row.status === 'GRADED' ? '已批改' : row.status === 'RETURNED' ? '已退回' : '待批阅' }}
+              {{ row.status === 'GRADED' ? '已批' : row.status === 'RETURNED' ? '退回' : '待批' }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="score" label="分数" width="70">
-          <template #default="{ row }">{{ row.score ?? '-' }}</template>
-        </el-table-column>
-        <el-table-column prop="comment" label="评语" min-width="120">
-          <template #default="{ row }">{{ row.comment || '-' }}</template>
-        </el-table-column>
-        <el-table-column label="操作" width="160">
+        <el-table-column prop="score" label="分数" width="60" align="center" />
+        <el-table-column prop="comment" label="评语" min-width="100" show-overflow-tooltip />
+        <el-table-column label="操作" width="140" align="center">
           <template #default="{ row }">
-            <template v-if="row.status !== 'GRADED'">
-              <el-button size="small" type="success" @click="handleGrade(row, 'PASS')">通过</el-button>
-              <el-button size="small" type="danger" @click="handleGrade(row, 'RETURN')">退回</el-button>
-            </template>
-            <span v-else style="color:#67c23a">已批阅</span>
+            <div class="action-btns">
+              <template v-if="row.status !== 'GRADED'">
+                <el-button size="small" type="success" @click="handleGrade(row, 'PASS')">通过</el-button>
+                <el-button size="small" type="danger" @click="handleGrade(row, 'RETURN')">退回</el-button>
+              </template>
+              <span v-else style="color:#67c23a;font-size:13px">已批阅</span>
+            </div>
           </template>
         </el-table-column>
       </el-table>
+    </el-dialog>
+
+    <!-- 任务详情弹窗 -->
+    <el-dialog v-model="detailVisible" :title="detailTask?.title" width="680px">
+      <el-descriptions v-if="detailTask" :column="2" border size="small">
+        <el-descriptions-item label="任务名称" :span="2">{{ detailTask.title }}</el-descriptions-item>
+        <el-descriptions-item label="任务类型">
+          <el-tag :type="detailTask.taskType === 'EXPERIMENT' ? 'success' : 'warning'" size="small">
+            {{ detailTask.taskType === 'EXPERIMENT' ? '实验' : '实训' }}
+          </el-tag>
+        </el-descriptions-item>
+        <el-descriptions-item label="审核状态">
+          <el-tag :type="auditStatusConfig[detailTask.auditStatus]?.type" size="small">
+            {{ auditStatusConfig[detailTask.auditStatus]?.label }}
+          </el-tag>
+        </el-descriptions-item>
+        <el-descriptions-item label="所属课程">{{ detailTask.courseName || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="目标班级">{{ detailTask.className || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="开始时间">{{ formatDate(detailTask.startTime) }}</el-descriptions-item>
+        <el-descriptions-item label="截止时间">{{ formatDate(detailTask.endTime) }}</el-descriptions-item>
+        <el-descriptions-item label="提交进度" :span="2">
+          已批 {{ detailTask.gradedCount || 0 }} / 已交 {{ detailTask.submittedCount || 0 }} / 总人数 {{ detailTask.studentCount || 0 }}
+        </el-descriptions-item>
+        <el-descriptions-item label="任务描述" :span="2">{{ detailTask.description || '暂无描述' }}</el-descriptions-item>
+        <el-descriptions-item label="指导文档" :span="2">
+          <template v-if="detailTask.guideFileUrl">
+            <div v-for="(f, i) in parseGuideFiles(detailTask.guideFileUrl)" :key="i">
+              <el-link type="primary" @click="handleGuidePreview(f)">{{ f.name }}</el-link>
+            </div>
+          </template>
+          <span v-else style="color:#909399">暂无</span>
+        </el-descriptions-item>
+      </el-descriptions>
+      <template #footer>
+        <el-button @click="detailVisible = false">关闭</el-button>
+      </template>
     </el-dialog>
   </div>
 </template>
@@ -287,5 +498,43 @@ onMounted(fetchTasks)
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+
+.search-bar {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.progress-text {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.time-cell {
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.time-sep {
+  color: #909399;
+  font-size: 11px;
+}
+
+.action-btns {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+}
+
+:deep(.el-descriptions__label) {
+  white-space: nowrap;
+}
+
+.upload-tip {
+  font-size: 12px;
+  color: #909399;
+  margin-left: 8px;
 }
 </style>

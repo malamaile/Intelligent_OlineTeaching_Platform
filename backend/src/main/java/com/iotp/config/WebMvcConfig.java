@@ -31,7 +31,8 @@ public class WebMvcConfig implements WebMvcConfigurer {
                         "/auth/register",                      // 注册
                         "/auth/forgot-password/verify",        // 忘记密码-验证身份
                         "/auth/forgot-password/reset",         // 忘记密码-重置密码
-                        "/common/files/**"                     // 上传文件访问（图片等）
+                        "/common/files/**",                    // 上传文件访问（图片等）
+                        "/common/file"                         // 上传文件访问（查询参数）
                 );
     }
 

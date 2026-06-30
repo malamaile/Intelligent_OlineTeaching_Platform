@@ -15,6 +15,10 @@ public class ExperimentTask {
     @TableField("project_id")
     private Long projectId;
 
+    /** 关联课程ID */
+    @TableField("course_id")
+    private Long courseId;
+
     /** 班级ID */
     @TableField("class_id")
     private Long classId;
@@ -76,6 +80,14 @@ public class ExperimentTask {
 
     public void setProjectId(Long projectId) {
         this.projectId = projectId;
+    }
+
+    public Long getCourseId() {
+        return courseId;
+    }
+
+    public void setCourseId(Long courseId) {
+        this.courseId = courseId;
     }
 
     public Long getClassId() {

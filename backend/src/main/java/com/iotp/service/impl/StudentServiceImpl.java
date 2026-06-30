@@ -763,15 +763,50 @@ public class StudentServiceImpl implements StudentService {
             }
         }
 
-        // 5. 构建指导文件列表
+        // 5. 构建指导文件列表（支持单 URL、URL 数组、{name,url} 对象数组）
         List<Map<String, Object>> guideFiles = new ArrayList<>();
         if (project != null && project.getGuideFileUrl() != null && !project.getGuideFileUrl().isEmpty()) {
-            Map<String, Object> gf = new LinkedHashMap<>();
-            gf.put("fileId", 1);
-            gf.put("name", project.getGuideFileUrl().substring(project.getGuideFileUrl().lastIndexOf("/") + 1));
-            gf.put("fileSize", 0);
-            gf.put("downloadUrl", project.getGuideFileUrl());
-            guideFiles.add(gf);
+            String raw = project.getGuideFileUrl();
+            int idx = 1;
+            if (raw.startsWith("[")) {
+                try {
+                    com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+                    List<Object> items = mapper.readValue(raw, mapper.getTypeFactory().constructCollectionType(List.class, Object.class));
+                    for (Object item : items) {
+                        Map<String, Object> gf = new LinkedHashMap<>();
+                        gf.put("fileId", idx++);
+                        if (item instanceof Map) {
+                            @SuppressWarnings("unchecked")
+                            Map<String, Object> m = (Map<String, Object>) item;
+                            Object urlObj = m.get("url");
+                            String url = urlObj != null ? urlObj.toString() : "";
+                            Object nameObj = m.get("name");
+                            String name = nameObj != null ? nameObj.toString() : (url.contains("/") ? url.substring(url.lastIndexOf("/") + 1) : url);
+                            gf.put("name", name);
+                            gf.put("downloadUrl", url);
+                        } else {
+                            String url = String.valueOf(item);
+                            String name = url.contains("/") ? url.substring(url.lastIndexOf("/") + 1) : url;
+                            gf.put("name", name);
+                            gf.put("downloadUrl", url);
+                        }
+                        gf.put("fileSize", 0);
+                        guideFiles.add(gf);
+                    }
+                } catch (Exception e) {
+                    Map<String, Object> gf = new LinkedHashMap<>();
+                    gf.put("fileId", 1); gf.put("name", raw); gf.put("fileSize", 0); gf.put("downloadUrl", raw);
+                    guideFiles.add(gf);
+                }
+            } else {
+                Map<String, Object> gf = new LinkedHashMap<>();
+                gf.put("fileId", 1);
+                String name = raw.contains("/") ? raw.substring(raw.lastIndexOf("/") + 1) : raw;
+                gf.put("name", name);
+                gf.put("fileSize", 0);
+                gf.put("downloadUrl", raw);
+                guideFiles.add(gf);
+            }
         }
 
         // 6. 组装结果（扁平结构，对齐教师端）

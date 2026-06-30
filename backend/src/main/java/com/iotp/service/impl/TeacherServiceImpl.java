@@ -97,6 +97,9 @@ public class TeacherServiceImpl implements TeacherService {
     @Autowired
     private SysSemesterMapper sysSemesterMapper;
 
+    @Autowired
+    private SysDepartmentMapper sysDepartmentMapper;
+
     // ==================== 首页看板 ====================
 
     @Override
@@ -406,8 +409,18 @@ public class TeacherServiceImpl implements TeacherService {
         course.setCourseCode((String) courseData.get("courseCode"));
         course.setDescription((String) courseData.get("description"));
         course.setCoverImage((String) courseData.get("coverImage"));
-        if (courseData.containsKey("departmentId")) {
+        // 获取 departmentId：前端传 > 教师所属院系 > 默认第1个院系
+        if (courseData.containsKey("departmentId") && courseData.get("departmentId") != null) {
             course.setDepartmentId(Long.valueOf(courseData.get("departmentId").toString()));
+        } else {
+            SysUser teacher = sysUserMapper.selectById(teacherId);
+            Long deptId = (teacher != null) ? teacher.getDepartmentId() : null;
+            if (deptId == null) {
+                // 兜底：取数据库中第一个院系
+                List<SysDepartment> depts = sysDepartmentMapper.selectList(null);
+                deptId = (depts != null && !depts.isEmpty()) ? depts.get(0).getId() : 1L;
+            }
+            course.setDepartmentId(deptId);
         }
         course.setTeacherId(teacherId);
         course.setAuditStatus(AUDIT_PENDING);
@@ -430,9 +443,26 @@ public class TeacherServiceImpl implements TeacherService {
         // 兼容前端字段名：className(班级名称字符串) / classId(Long)
         Object classVal = readInputField(courseData, "className", "classId");
         if (classVal instanceof String) {
-            plan.setClassId(resolveClassId((String) classVal));
+            Long resolved = resolveClassId((String) classVal);
+            if (resolved == null) {
+                throw new BusinessException(400, "未找到班级：" + classVal);
+            }
+            plan.setClassId(resolved);
         } else if (classVal != null) {
             plan.setClassId(Long.valueOf(classVal.toString()));
+        } else {
+            // 兜底：使用教师所属班级（如果教师只有一个班级）
+            QueryWrapper<CoursePlan> existingPlanQw = new QueryWrapper<>();
+            existingPlanQw.eq("teacher_id", teacherId)
+                    .eq("audit_status", AUDIT_APPROVED)
+                    .select("class_id")
+                    .last("LIMIT 1");
+            CoursePlan existingPlan = coursePlanMapper.selectOne(existingPlanQw);
+            if (existingPlan != null && existingPlan.getClassId() != null) {
+                plan.setClassId(existingPlan.getClassId());
+            } else {
+                throw new BusinessException(400, "班级信息不能为空，请传入 classId 或 className");
+            }
         }
 
         plan.setTeacherId(teacherId);
@@ -866,18 +896,11 @@ public class TeacherServiceImpl implements TeacherService {
 
             SysClass sysClass = task.getClassId() != null ? sysClassMapper.selectById(task.getClassId()) : null;
 
-            // 尝试通过 classId + teacherId 反查关联的课程
+            // 直接通过 task.courseId 获取课程名称
             String courseName = "";
-            if (task.getClassId() != null) {
-                QueryWrapper<CoursePlan> coursePlanQw = new QueryWrapper<>();
-                coursePlanQw.eq("class_id", task.getClassId())
-                        .eq("teacher_id", teacherId)
-                        .last("LIMIT 1");
-                CoursePlan relatedPlan = coursePlanMapper.selectOne(coursePlanQw);
-                if (relatedPlan != null) {
-                    Course relatedCourse = courseMapper.selectById(relatedPlan.getCourseId());
-                    courseName = relatedCourse != null ? relatedCourse.getCourseName() : "";
-                }
+            if (task.getCourseId() != null) {
+                Course course = courseMapper.selectById(task.getCourseId());
+                courseName = course != null ? course.getCourseName() : "";
             }
 
             // 查询学生数和提交统计
@@ -912,6 +935,7 @@ public class TeacherServiceImpl implements TeacherService {
             taskMap.put("status", task.getStatus());
             taskMap.put("auditStatus", task.getAuditStatus());
             taskMap.put("studentCount", studentCount);
+            taskMap.put("guideFileUrl", project != null ? project.getGuideFileUrl() : "");
             taskMap.put("submittedCount", submittedCount);
             taskMap.put("gradedCount", gradedCount);
 
@@ -955,11 +979,19 @@ public class TeacherServiceImpl implements TeacherService {
         } else if (clsVal != null) {
             task.setClassId(Long.valueOf(clsVal.toString()));
         }
+        // 关联课程：优先用 courseId，其次用 courseName 模糊匹配
+        Object courseVal = readInputField(taskData, "courseName", "courseId");
+        if (courseVal instanceof String) {
+            Long resolved = resolveCourseId((String) courseVal);
+            if (resolved != null) task.setCourseId(resolved);
+        } else if (courseVal != null) {
+            task.setCourseId(Long.valueOf(courseVal.toString()));
+        }
         task.setTeacherId(teacherId);
         task.setStartTime(taskData.get("startTime") != null
-                ? LocalDateTime.parse(taskData.get("startTime").toString().replace(" ", "T")) : LocalDateTime.now());
+                ? LocalDateTime.parse(taskData.get("startTime").toString().replace(" ", "T").replaceFirst("\\.[0-9]+Z?$", "").replaceFirst("[+-]\\d{2}:\\d{2}$", "")) : LocalDateTime.now());
         task.setEndTime(taskData.get("endTime") != null
-                ? LocalDateTime.parse(taskData.get("endTime").toString().replace(" ", "T")) : null);
+                ? LocalDateTime.parse(taskData.get("endTime").toString().replace(" ", "T").replaceFirst("\\.[0-9]+Z?$", "").replaceFirst("[+-]\\d{2}:\\d{2}$", "")) : null);
         task.setAuditStatus(AUDIT_PENDING);
         task.setStatus("ACTIVE");
 
@@ -1011,10 +1043,10 @@ public class TeacherServiceImpl implements TeacherService {
             task.setClassId(Long.valueOf(clsVal.toString()));
         }
         if (taskData.containsKey("startTime")) {
-            task.setStartTime(LocalDateTime.parse(taskData.get("startTime").toString().replace(" ", "T")));
+            task.setStartTime(LocalDateTime.parse(taskData.get("startTime").toString().replace(" ", "T").replaceFirst("\\.[0-9]+Z?$", "").replaceFirst("[+-]\\d{2}:\\d{2}$", "")));
         }
         if (taskData.containsKey("endTime")) {
-            task.setEndTime(LocalDateTime.parse(taskData.get("endTime").toString().replace(" ", "T")));
+            task.setEndTime(LocalDateTime.parse(taskData.get("endTime").toString().replace(" ", "T").replaceFirst("\\.[0-9]+Z?$", "").replaceFirst("[+-]\\d{2}:\\d{2}$", "")));
         }
         if (taskData.containsKey("status")) {
             task.setStatus((String) taskData.get("status"));
@@ -1749,7 +1781,7 @@ public class TeacherServiceImpl implements TeacherService {
     }
 
     @Override
-    public List<Map<String, Object>> getAtRiskStudents(Long classId, String filterType) {
+    public IPage<Map<String, Object>> getAtRiskStudents(Long classId, String filterType, Integer page, Integer pageSize) {
         Long teacherId = UserContext.getUserId();
 
         // 翻译前端过滤器值到后端常量
@@ -1774,7 +1806,7 @@ public class TeacherServiceImpl implements TeacherService {
                 .collect(Collectors.toSet());
 
         if (targetClassIds.isEmpty()) {
-            return new ArrayList<>();
+            return new Page<>(page, pageSize, 0);
         }
 
         // 查询这些班级的所有学生
@@ -1887,7 +1919,18 @@ public class TeacherServiceImpl implements TeacherService {
             }
         }
 
-        return riskList;
+        // 内存分页
+        int total = riskList.size();
+        int fromIndex = (page - 1) * pageSize;
+        if (fromIndex >= total) {
+            fromIndex = 0;
+        }
+        int toIndex = Math.min(fromIndex + pageSize, total);
+        List<Map<String, Object>> pageList = riskList.subList(fromIndex, toIndex);
+
+        IPage<Map<String, Object>> result = new Page<>(page, pageSize, total);
+        result.setRecords(pageList);
+        return result;
     }
 
     // ==================== 通知公告 ====================
@@ -2383,10 +2426,16 @@ public class TeacherServiceImpl implements TeacherService {
      */
     private Long resolveClassId(String className) {
         if (className == null || className.isEmpty()) return null;
+        // 先用精确匹配
         QueryWrapper<SysClass> qw = new QueryWrapper<>();
         qw.eq("class_name", className);
         SysClass cls = sysClassMapper.selectOne(qw);
-        return cls != null ? cls.getId() : null;
+        if (cls != null) return cls.getId();
+        // 精确匹配失败 → 模糊匹配（支持前端传简称如"软件工程"找到"软件工程2101班"）
+        QueryWrapper<SysClass> likeQw = new QueryWrapper<>();
+        likeQw.like("class_name", className);
+        SysClass likeCls = sysClassMapper.selectOne(likeQw);
+        return likeCls != null ? likeCls.getId() : null;
     }
 
     /**

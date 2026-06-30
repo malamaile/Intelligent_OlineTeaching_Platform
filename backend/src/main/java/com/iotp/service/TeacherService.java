@@ -223,13 +223,15 @@ public interface TeacherService {
     Map<String, Object> getStudentAnalytics(Long userId, Long semester);
 
     /**
-     * 获取预警学生列表
+     * 获取预警学生列表（分页）
      *
      * @param classId    班级 ID（可选）
      * @param filterType 预警类型：MISSING_HOMEWORK / LOW_SCORE / SLOW_PROGRESS / ALL
-     * @return 预警学生列表
+     * @param page       当前页
+     * @param pageSize   每页条数
+     * @return 预警学生分页数据
      */
-    List<Map<String, Object>> getAtRiskStudents(Long classId, String filterType);
+    IPage<Map<String, Object>> getAtRiskStudents(Long classId, String filterType, Integer page, Integer pageSize);
 
     // ==================== 通知公告 ====================
 

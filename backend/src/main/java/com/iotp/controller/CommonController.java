@@ -4,14 +4,14 @@ import com.iotp.common.Result;
 import com.iotp.entity.*;
 import com.iotp.mapper.*;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
-import org.springframework.core.io.UrlResource;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import javax.servlet.http.HttpServletRequest;
-import java.net.MalformedURLException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
@@ -24,6 +24,9 @@ import java.util.stream.Collectors;
 @RestController
 @RequestMapping("/common")
 public class CommonController {
+
+    /** 上传文件根目录，用 user.dir + uploads 保证绝对路径 */
+    private static final String uploadDir = System.getProperty("user.dir") + java.io.File.separator + "uploads";
 
     @Autowired
     private SysDepartmentMapper departmentMapper;
@@ -153,42 +156,56 @@ public class CommonController {
     @PostMapping("/upload")
     public Result<Map<String, Object>> upload(
             @RequestParam("file") org.springframework.web.multipart.MultipartFile file,
-            @RequestParam("module") String module) {
+            @RequestParam("module") String module,
+            @RequestParam(value = "fileName", required = false) String customFileName) {
 
         if (file.isEmpty()) {
             return Result.badRequest("文件不能为空");
         }
 
         try {
-            // 构造存储目录：files/{module}/YYYY/MM/
+            // 构造存储目录：{uploadDir}/{module}/YYYY/MM/
             java.time.LocalDate now = java.time.LocalDate.now();
             String yearMonth = now.getYear() + "/" + String.format("%02d", now.getMonthValue());
-            String dirPath = "files/" + module + "/" + yearMonth + "/";
+            String relativePath = module + "/" + yearMonth + "/";
 
-            // 创建目录
-            java.io.File dir = new java.io.File(dirPath);
-            if (!dir.exists()) {
-                dir.mkdirs();
-            }
+            // 用 NIO 创建目录（绝对路径，不依赖 Tomcat 工作目录）
+            Path uploadRoot = Paths.get(uploadDir).toAbsolutePath();
+            Path dirPath = uploadRoot.resolve(relativePath);
+            Files.createDirectories(dirPath);
 
-            // 生成唯一文件名
+            // 文件名：优先用自定义名，否则用原始名
             String originalName = file.getOriginalFilename();
+            String displayName = (customFileName != null && !customFileName.isEmpty()) ? customFileName : originalName;
             String extension = "";
-            if (originalName != null && originalName.contains(".")) {
+            String baseName = displayName;
+            if (displayName != null && displayName.contains(".")) {
+                extension = displayName.substring(displayName.lastIndexOf("."));
+                baseName = displayName.substring(0, displayName.lastIndexOf("."));
+            } else if (originalName != null && originalName.contains(".")) {
                 extension = originalName.substring(originalName.lastIndexOf("."));
             }
-            String uniqueName = UUID.randomUUID().toString().replace("-", "") + extension;
-            String fullPath = dirPath + uniqueName;
+            // 重名处理：文件名已存在则追加序号
+            String finalName = displayName;
+            Path filePath = dirPath.resolve(finalName);
+            int seq = 1;
+            while (Files.exists(filePath)) {
+                finalName = baseName + "_" + seq + extension;
+                filePath = dirPath.resolve(finalName);
+                seq++;
+            }
 
             // 保存文件
-            file.transferTo(new java.io.File(fullPath));
+            file.transferTo(filePath.toFile());
 
-            // 返回文件信息
+            // 返回文件信息，URL 直接用文件名
             Map<String, Object> data = new HashMap<>();
-            data.put("fileId", System.currentTimeMillis()); // 简化处理，实际应存储文件记录
-            data.put("fileName", originalName);
+            data.put("fileId", System.currentTimeMillis());
+            data.put("fileName", displayName);
             data.put("fileSize", file.getSize());
-            data.put("fileUrl", "/api/v1/common/files/" + module + "/" + yearMonth + "/" + uniqueName);
+            // 用查询参数传路径，彻底避免中文 URL 编码问题
+            String encodedPath = java.net.URLEncoder.encode(relativePath + finalName, "UTF-8").replace("+", "%20");
+            data.put("fileUrl", "/api/v1/common/file?path=" + encodedPath);
             data.put("uploadTime", new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date()));
 
             return Result.ok("上传成功", data);
@@ -198,13 +215,62 @@ public class CommonController {
     }
 
     /**
-     * 6.7 访问上传的文件（头像、课件等）
-     * <p>通过 URL 路径直接访问 uploads 目录下的文件，支持多级子目录</p>
-     * GET /common/files/**  → 映射到 uploads/**
+     * 6.7 访问上传的文件（头像、课件等）- 查询参数方式，避免中文路径编码问题
+     * GET /common/file?path=guide/2026/06/文件名.pdf
+     */
+    @GetMapping("/file")
+    public ResponseEntity<Resource> serveFileByPath(@RequestParam("path") String relativePath) {
+        Path filePath = Paths.get(uploadDir).toAbsolutePath();
+        for (String seg : relativePath.split("/")) {
+            if (!seg.isEmpty()) filePath = filePath.resolve(seg);
+        }
+        Resource resource = new FileSystemResource(filePath);
+        if (resource.exists() && resource.isReadable()) {
+            String contentType = "application/octet-stream";
+            boolean canPreview = false;
+            String name = filePath.getFileName().toString().toLowerCase();
+            if (name.endsWith(".jpg") || name.endsWith(".jpeg")) {
+                contentType = "image/jpeg"; canPreview = true;
+            } else if (name.endsWith(".png")) {
+                contentType = "image/png"; canPreview = true;
+            } else if (name.endsWith(".gif")) {
+                contentType = "image/gif"; canPreview = true;
+            } else if (name.endsWith(".pdf")) {
+                contentType = "application/pdf"; canPreview = true;
+            } else if (name.endsWith(".txt") || name.endsWith(".md")) {
+                contentType = "text/plain;charset=UTF-8"; canPreview = true;
+            } else if (name.endsWith(".doc")) {
+                contentType = "application/msword";
+            } else if (name.endsWith(".docx")) {
+                contentType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+            } else if (name.endsWith(".xls")) {
+                contentType = "application/vnd.ms-excel";
+            } else if (name.endsWith(".xlsx")) {
+                contentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+            } else if (name.endsWith(".ppt")) {
+                contentType = "application/vnd.ms-powerpoint";
+            } else if (name.endsWith(".pptx")) {
+                contentType = "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+            }
+            ResponseEntity.BodyBuilder builder = ResponseEntity.ok()
+                    .contentType(MediaType.parseMediaType(contentType));
+            if (!canPreview) {
+                try {
+                    builder.header("Content-Disposition",
+                        "attachment; filename*=UTF-8''" + java.net.URLEncoder.encode(name, "UTF-8").replace("+", "%20"));
+                } catch (Exception ignored) {}
+            }
+            return builder.body(resource);
+        }
+        return ResponseEntity.notFound().build();
+    }
+
+    /**
+     * 6.7 old /files/** — 保留，兼容旧 URL
      */
     @GetMapping("/files/**")
-    public ResponseEntity<Resource> serveFile(HttpServletRequest request) throws MalformedURLException {
-        // 提取 /common/files/ 之后的路径部分（如 avatars/uuid.jpg）
+    public ResponseEntity<Resource> serveFile(HttpServletRequest request) {
+        // 提取 /common/files/ 之后的路径部分
         String requestURI = request.getRequestURI();
         String contextPath = request.getContextPath();
         String path = requestURI.substring(contextPath.length());
@@ -212,25 +278,51 @@ public class CommonController {
         if (!path.startsWith(prefix)) {
             return ResponseEntity.notFound().build();
         }
-        String relativePath = path.substring(prefix.length());
+        String fullPath = path.substring(prefix.length());
 
-        Path filePath = Paths.get("uploads", relativePath);
-        Resource resource = new UrlResource(filePath.toUri());
+        Path filePath = Paths.get(uploadDir).toAbsolutePath();
+        for (String seg : fullPath.split("/")) {
+            if (!seg.isEmpty()) filePath = filePath.resolve(seg);
+        }
+        Resource resource = new FileSystemResource(filePath);
         if (resource.exists() && resource.isReadable()) {
             String contentType = "application/octet-stream";
-            String name = relativePath.toLowerCase();
+            boolean canPreview = false;
+            String name = filePath.getFileName().toString().toLowerCase();
             if (name.endsWith(".jpg") || name.endsWith(".jpeg")) {
-                contentType = "image/jpeg";
+                contentType = "image/jpeg"; canPreview = true;
             } else if (name.endsWith(".png")) {
-                contentType = "image/png";
+                contentType = "image/png"; canPreview = true;
             } else if (name.endsWith(".gif")) {
-                contentType = "image/gif";
+                contentType = "image/gif"; canPreview = true;
             } else if (name.endsWith(".pdf")) {
-                contentType = "application/pdf";
+                contentType = "application/pdf"; canPreview = true;
+            } else if (name.endsWith(".txt") || name.endsWith(".md")) {
+                contentType = "text/plain;charset=UTF-8"; canPreview = true;
+            } else if (name.endsWith(".doc")) {
+                contentType = "application/msword";
+            } else if (name.endsWith(".docx")) {
+                contentType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+            } else if (name.endsWith(".xls")) {
+                contentType = "application/vnd.ms-excel";
+            } else if (name.endsWith(".xlsx")) {
+                contentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+            } else if (name.endsWith(".ppt")) {
+                contentType = "application/vnd.ms-powerpoint";
+            } else if (name.endsWith(".pptx")) {
+                contentType = "application/vnd.openxmlformats-officedocument.presentationml.presentation";
             }
-            return ResponseEntity.ok()
-                    .contentType(MediaType.parseMediaType(contentType))
-                    .body(resource);
+            ResponseEntity.BodyBuilder builder = ResponseEntity.ok()
+                    .contentType(MediaType.parseMediaType(contentType));
+            if (!canPreview) {
+                // 不能在线预览的文件强制下载
+                String downloadName = name;
+                try {
+                    builder.header("Content-Disposition",
+                        "attachment; filename*=UTF-8''" + java.net.URLEncoder.encode(downloadName, "UTF-8").replace("+", "%20"));
+                } catch (Exception ignored) {}
+            }
+            return builder.body(resource);
         }
         return ResponseEntity.notFound().build();
     }
