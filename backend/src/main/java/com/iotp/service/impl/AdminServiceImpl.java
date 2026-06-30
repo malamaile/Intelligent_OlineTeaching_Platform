@@ -1358,15 +1358,17 @@ public class AdminServiceImpl implements AdminService {
         ann.setStatus(1); // 已发布
         ann.setPublishTime(LocalDateTime.now());
 
-        // 设置发布范围和目标
-        if (SCOPE_DEPARTMENT.equalsIgnoreCase(scope)) {
+        // 设置发布范围和目标（前端 scope: SCHOOL_WIDE / DEPARTMENT_WIDE / CLASS_ONLY）
+        // 数据库 announce_type: SCHOOL / DEPARTMENT / CLASS
+        if ("DEPARTMENT_WIDE".equalsIgnoreCase(scope) || SCOPE_DEPARTMENT.equalsIgnoreCase(scope)) {
             ann.setAnnounceType("DEPARTMENT");
             ann.setTargetDeptId(department);
-        } else if (SCOPE_CLASS.equalsIgnoreCase(scope)) {
+        } else if ("CLASS_ONLY".equalsIgnoreCase(scope) || SCOPE_CLASS.equalsIgnoreCase(scope)) {
             ann.setAnnounceType("CLASS");
             ann.setTargetDeptId(department);
         } else {
-            ann.setAnnounceType("ALL");
+            // SCHOOL_WIDE 或其他
+            ann.setAnnounceType("SCHOOL");
         }
 
         // 重要程度映射到是否置顶
@@ -1400,12 +1402,15 @@ public class AdminServiceImpl implements AdminService {
         qw.eq("is_deleted", 0);
 
         if (scope != null && !scope.isEmpty()) {
-            if (SCOPE_DEPARTMENT.equalsIgnoreCase(scope)) {
+            // 前端 scope 值: SCHOOL_WIDE / DEPARTMENT_WIDE / CLASS_ONLY
+            // 数据库 announce_type: SCHOOL / DEPARTMENT / CLASS
+            if ("DEPARTMENT_WIDE".equalsIgnoreCase(scope) || SCOPE_DEPARTMENT.equalsIgnoreCase(scope)) {
                 qw.eq("announce_type", "DEPARTMENT");
-            } else if (SCOPE_CLASS.equalsIgnoreCase(scope)) {
+            } else if ("CLASS_ONLY".equalsIgnoreCase(scope) || SCOPE_CLASS.equalsIgnoreCase(scope)) {
                 qw.eq("announce_type", "CLASS");
             } else {
-                qw.eq("announce_type", "ALL");
+                // SCHOOL_WIDE 或其他 → 全校
+                qw.eq("announce_type", "SCHOOL");
             }
         }
 
@@ -1429,16 +1434,29 @@ public class AdminServiceImpl implements AdminService {
 
         List<Map<String, Object>> annList = new ArrayList<>();
         for (SysAnnouncement ann : announcements) {
+            // announceType 映射为前端 scope 值
+            String announceType = ann.getAnnounceType();
+            String scopeValue = "SCHOOL".equals(announceType) ? "SCHOOL_WIDE"
+                    : "DEPARTMENT".equals(announceType) ? "DEPARTMENT_WIDE"
+                    : "CLASS".equals(announceType) ? "CLASS_ONLY" : announceType;
+            // importance: isTop=1 → IMPORTANT（前端值）, else → NORMAL
+            String importance = (ann.getIsTop() != null && ann.getIsTop() == 1) ? "IMPORTANT" : "NORMAL";
+
             Map<String, Object> annMap = new LinkedHashMap<>();
             annMap.put("id", ann.getId());
+            annMap.put("announcementId", ann.getId());               // 前端用
             annMap.put("title", ann.getTitle());
             annMap.put("content", ann.getContent());
-            annMap.put("announceType", ann.getAnnounceType());
+            annMap.put("announceType", announceType);
+            annMap.put("scope", scopeValue);                         // 前端用
             annMap.put("targetDeptId", ann.getTargetDeptId());
             annMap.put("targetDepartmentName", getDepartmentName(ann.getTargetDeptId()));
+            annMap.put("department", getDepartmentName(ann.getTargetDeptId())); // 前端用
             annMap.put("publisherId", ann.getPublisherId());
             annMap.put("publisherName", getUserRealName(ann.getPublisherId()));
+            annMap.put("publisher", getUserRealName(ann.getPublisherId()));     // 前端用
             annMap.put("isTop", ann.getIsTop());
+            annMap.put("importance", importance);                    // 前端用
             annMap.put("status", ann.getStatus());
             annMap.put("publishTime", ann.getPublishTime());
             annMap.put("createTime", ann.getCreateTime());
@@ -1669,8 +1687,42 @@ public class AdminServiceImpl implements AdminService {
             deptStat.put("department", dept.getDeptName());          // 前端用
             deptStat.put("studentCount", deptStudents);
             deptStat.put("courseCount", deptCourses);
-            deptStat.put("completionRate", BigDecimal.ZERO);         // 待从成绩表计算
-            deptStat.put("passRate", BigDecimal.ZERO);               // 待从成绩表计算
+
+            // 计算该院系的完成率和通过率（从成绩表）
+            BigDecimal deptCompletionRate = BigDecimal.ZERO;
+            BigDecimal deptPassRate = BigDecimal.ZERO;
+            if (semId != null && deptStudents > 0 && studentRoleId != null) {
+                QueryWrapper<SysUser> deptStudentIdsQw = new QueryWrapper<>();
+                deptStudentIdsQw.eq("role_id", studentRoleId)
+                        .eq("department_id", dept.getId())
+                        .eq("is_deleted", 0);
+                List<SysUser> deptStudentList = sysUserMapper.selectList(deptStudentIdsQw);
+                if (!deptStudentList.isEmpty()) {
+                    Set<Long> deptStudentIds = deptStudentList.stream()
+                            .map(SysUser::getId).collect(Collectors.toSet());
+                    QueryWrapper<StudentGrade> deptGradeQw = new QueryWrapper<>();
+                    deptGradeQw.in("student_id", deptStudentIds)
+                            .eq("semester_id", semId)
+                            .eq("is_published", 1);
+                    List<StudentGrade> deptGrades = studentGradeMapper.selectList(deptGradeQw);
+                    if (!deptGrades.isEmpty()) {
+                        long completedCount = deptGrades.stream()
+                                .filter(g -> g.getFinalGrade() != null).count();
+                        long passCount = deptGrades.stream()
+                                .filter(g -> g.getFinalGrade() != null
+                                        && g.getFinalGrade().compareTo(BigDecimal.valueOf(60)) >= 0)
+                                .count();
+                        deptCompletionRate = BigDecimal.valueOf(completedCount)
+                                .multiply(BigDecimal.valueOf(100))
+                                .divide(BigDecimal.valueOf(deptGrades.size()), 2, RoundingMode.HALF_UP);
+                        deptPassRate = BigDecimal.valueOf(passCount)
+                                .multiply(BigDecimal.valueOf(100))
+                                .divide(BigDecimal.valueOf(deptGrades.size()), 2, RoundingMode.HALF_UP);
+                    }
+                }
+            }
+            deptStat.put("completionRate", deptCompletionRate.doubleValue());
+            deptStat.put("passRate", deptPassRate.doubleValue());
             byDepartment.add(deptStat);
         }
 
@@ -1706,8 +1758,8 @@ public class AdminServiceImpl implements AdminService {
 
             Map<String, Object> monthData = new LinkedHashMap<>();
             monthData.put("month", monthStart.format(DateTimeFormatter.ofPattern("yyyy-MM")));
-            monthData.put("avgScore", monthAvgScore);
-            monthData.put("completionRate", monthCompletionRate);
+            monthData.put("avgScore", monthAvgScore.doubleValue());
+            monthData.put("completionRate", monthCompletionRate.doubleValue());
             trendData.add(monthData);
         }
 
@@ -1728,8 +1780,8 @@ public class AdminServiceImpl implements AdminService {
         result.put("semesterCourses", semesterCourses);
         result.put("totalResources", totalResources);
         // 学情分析字段
-        result.put("overallCompletionRate", overallCompletionRate);
-        result.put("overallPassRate", overallPassRate);
+        result.put("overallCompletionRate", overallCompletionRate.doubleValue());
+        result.put("overallPassRate", overallPassRate.doubleValue());
         result.put("levelDistribution", levelDistribution);
         result.put("byDepartment", byDepartment);
         result.put("deptStats", byDepartment);                       // 前端用别名
@@ -1860,6 +1912,191 @@ public class AdminServiceImpl implements AdminService {
         return result;
     }
 
+    // ==================== 系统监控 ====================
+
+    @Override
+    public Map<String, Object> getSystemMonitor() {
+        Map<String, Object> result = new LinkedHashMap<>();
+
+        // 1. 系统指标（JVM 内存 + 磁盘）
+        Runtime runtime = Runtime.getRuntime();
+        long totalMemory = runtime.totalMemory();
+        long freeMemory = runtime.freeMemory();
+        long maxMemory = runtime.maxMemory();
+        long usedMemory = totalMemory - freeMemory;
+
+        Map<String, Object> systemMetrics = new LinkedHashMap<>();
+        systemMetrics.put("memoryUsed", usedMemory / (1024 * 1024));       // MB
+        systemMetrics.put("memoryTotal", totalMemory / (1024 * 1024));
+        systemMetrics.put("memoryMax", maxMemory / (1024 * 1024));
+        systemMetrics.put("memoryUsagePercent", totalMemory > 0
+                ? BigDecimal.valueOf(usedMemory).multiply(BigDecimal.valueOf(100))
+                .divide(BigDecimal.valueOf(totalMemory), 1, RoundingMode.HALF_UP)
+                : BigDecimal.ZERO);
+        systemMetrics.put("cpuCores", runtime.availableProcessors());
+
+        // 磁盘空间（应用所在目录）
+        java.io.File appDir = new java.io.File(".");
+        long diskTotal = appDir.getTotalSpace();
+        long diskFree = appDir.getFreeSpace();
+        long diskUsed = diskTotal - diskFree;
+        systemMetrics.put("diskUsed", diskUsed / (1024 * 1024 * 1024));   // GB
+        systemMetrics.put("diskTotal", diskTotal / (1024 * 1024 * 1024));
+        systemMetrics.put("diskUsagePercent", diskTotal > 0
+                ? BigDecimal.valueOf(diskUsed).multiply(BigDecimal.valueOf(100))
+                .divide(BigDecimal.valueOf(diskTotal), 1, RoundingMode.HALF_UP)
+                : BigDecimal.ZERO);
+
+        result.put("systemMetrics", systemMetrics);
+
+        // 2. 用户统计
+        Long studentRoleId = getRoleIdByCode("STUDENT");
+        Long teacherRoleId = getRoleIdByCode("TEACHER");
+        Long adminRoleId = getRoleIdByCode("ADMIN");
+
+        QueryWrapper<SysUser> activeUserQw = new QueryWrapper<>();
+        activeUserQw.eq("status", 1).eq("is_deleted", 0);
+        long activeUsers = sysUserMapper.selectCount(activeUserQw);
+
+        QueryWrapper<SysUser> allUserQw = new QueryWrapper<>();
+        allUserQw.eq("is_deleted", 0);
+        long totalUsers = sysUserMapper.selectCount(allUserQw);
+
+        // 近24小时登录的用户数（近似在线）
+        QueryWrapper<SysUser> recentLoginQw = new QueryWrapper<>();
+        recentLoginQw.ge("last_login_time", LocalDateTime.now().minusHours(24))
+                .eq("is_deleted", 0);
+        long todayActiveUsers = sysUserMapper.selectCount(recentLoginQw);
+
+        Map<String, Object> userStats = new LinkedHashMap<>();
+        userStats.put("totalUsers", totalUsers);
+        userStats.put("activeUsers", activeUsers);
+        userStats.put("todayActive", todayActiveUsers);
+        userStats.put("students", studentRoleId != null
+                ? sysUserMapper.selectCount(new QueryWrapper<SysUser>().eq("role_id", studentRoleId).eq("is_deleted", 0))
+                : 0);
+        userStats.put("teachers", teacherRoleId != null
+                ? sysUserMapper.selectCount(new QueryWrapper<SysUser>().eq("role_id", teacherRoleId).eq("is_deleted", 0))
+                : 0);
+        userStats.put("admins", adminRoleId != null
+                ? sysUserMapper.selectCount(new QueryWrapper<SysUser>().eq("role_id", adminRoleId).eq("is_deleted", 0))
+                : 0);
+        result.put("userStats", userStats);
+
+        // 3. 审核汇总
+        QueryWrapper<CoursePlan> pendingCourseQw = new QueryWrapper<>();
+        pendingCourseQw.eq("audit_status", AUDIT_PENDING);
+        long pendingCourses = coursePlanMapper.selectCount(pendingCourseQw);
+
+        QueryWrapper<ExperimentTask> pendingTaskQw = new QueryWrapper<>();
+        pendingTaskQw.eq("audit_status", AUDIT_PENDING);
+        long pendingTasks = experimentTaskMapper.selectCount(pendingTaskQw);
+
+        QueryWrapper<TeachingResource> pendingResQw = new QueryWrapper<>();
+        pendingResQw.eq("audit_status", AUDIT_PENDING);
+        long pendingResources = teachingResourceMapper.selectCount(pendingResQw);
+
+        long totalApproved = coursePlanMapper.selectCount(
+                new QueryWrapper<CoursePlan>().eq("audit_status", AUDIT_APPROVED))
+                + experimentTaskMapper.selectCount(
+                new QueryWrapper<ExperimentTask>().eq("audit_status", AUDIT_APPROVED))
+                + teachingResourceMapper.selectCount(
+                new QueryWrapper<TeachingResource>().eq("audit_status", AUDIT_APPROVED));
+
+        long totalRejected = coursePlanMapper.selectCount(
+                new QueryWrapper<CoursePlan>().eq("audit_status", AUDIT_REJECTED))
+                + experimentTaskMapper.selectCount(
+                new QueryWrapper<ExperimentTask>().eq("audit_status", AUDIT_REJECTED))
+                + teachingResourceMapper.selectCount(
+                new QueryWrapper<TeachingResource>().eq("audit_status", AUDIT_REJECTED));
+
+        // 今日审核统计
+        LocalDate today = LocalDate.now();
+        LocalDateTime todayStart = today.atStartOfDay();
+        LocalDateTime todayEnd = today.atTime(23, 59, 59);
+
+        QueryWrapper<SysAuditLog> todayApprovedQw = new QueryWrapper<>();
+        todayApprovedQw.eq("action", AUDIT_APPROVED)
+                .between("create_time", todayStart, todayEnd);
+        long todayApproved = sysAuditLogMapper.selectCount(todayApprovedQw);
+
+        QueryWrapper<SysAuditLog> todayRejectedQw = new QueryWrapper<>();
+        todayRejectedQw.eq("action", AUDIT_REJECTED)
+                .between("create_time", todayStart, todayEnd);
+        long todayRejected = sysAuditLogMapper.selectCount(todayRejectedQw);
+
+        Map<String, Object> auditSummary = new LinkedHashMap<>();
+        auditSummary.put("pendingCourses", pendingCourses);
+        auditSummary.put("pendingTasks", pendingTasks);
+        auditSummary.put("pendingResources", pendingResources);
+        auditSummary.put("totalPending", pendingCourses + pendingTasks + pendingResources);
+        auditSummary.put("totalApproved", totalApproved);
+        auditSummary.put("totalRejected", totalRejected);
+        auditSummary.put("todayApproved", todayApproved);
+        auditSummary.put("todayRejected", todayRejected);
+        result.put("auditSummary", auditSummary);
+
+        // 4. 最近操作日志（最近20条审核日志）
+        Page<SysAuditLog> logPage = new Page<>(1, 20);
+        QueryWrapper<SysAuditLog> logQw = new QueryWrapper<>();
+        logQw.orderByDesc("create_time");
+        IPage<SysAuditLog> logPageResult = sysAuditLogMapper.selectPage(logPage, logQw);
+
+        List<Map<String, Object>> logList = new ArrayList<>();
+        for (SysAuditLog al : logPageResult.getRecords()) {
+            String actionCn = AUDIT_APPROVED.equals(al.getAction()) ? "审核通过"
+                    : AUDIT_REJECTED.equals(al.getAction()) ? "审核驳回" : al.getAction();
+            String level = AUDIT_REJECTED.equals(al.getAction()) ? "WARN" : "INFO";
+
+            Map<String, Object> logItem = new LinkedHashMap<>();
+            logItem.put("time", al.getCreateTime());
+            logItem.put("user", al.getOperatorName());
+            logItem.put("action", actionCn + "「" + al.getBizName() + "」"
+                    + (al.getComment() != null && !al.getComment().isEmpty() ? "：" + al.getComment() : ""));
+            logItem.put("type", al.getBizType());
+            logItem.put("level", level);
+            logList.add(logItem);
+        }
+        result.put("recentLogs", logList);
+
+        // 5. 近24小时活跃用户列表（最近登录的10个用户）
+        QueryWrapper<SysUser> activeListQw = new QueryWrapper<>();
+        activeListQw.isNotNull("last_login_time")
+                .eq("is_deleted", 0)
+                .orderByDesc("last_login_time")
+                .last("LIMIT 10");
+        activeListQw.eq("is_deleted", 0);
+        List<SysUser> recentUsers = sysUserMapper.selectList(
+                new QueryWrapper<SysUser>()
+                        .isNotNull("last_login_time")
+                        .eq("is_deleted", 0)
+                        .orderByDesc("last_login_time")
+                        .last("LIMIT 10"));
+
+        List<Map<String, Object>> onlineList = new ArrayList<>();
+        for (SysUser u : recentUsers) {
+            Map<String, Object> userItem = new LinkedHashMap<>();
+            userItem.put("account", u.getUsername());
+            userItem.put("userName", u.getRealName());
+            userItem.put("roleId", u.getRoleId());
+            String[] roleInfo = getRoleCodeAndName(u.getRoleId());
+            userItem.put("role", roleInfo[0]);
+            userItem.put("roleName", roleInfo[1]);
+            userItem.put("lastLoginTime", u.getLastLoginTime());
+            // 在线时长（近似：从最后登录时间到现在）
+            if (u.getLastLoginTime() != null) {
+                long minutes = java.time.Duration.between(u.getLastLoginTime(), LocalDateTime.now()).toMinutes();
+                userItem.put("duration", Math.max(0, minutes));
+            } else {
+                userItem.put("duration", 0);
+            }
+            onlineList.add(userItem);
+        }
+        result.put("onlineUsers", onlineList);
+
+        return result;
+    }
+
     // ==================== 私有辅助方法 ====================
 
     /**
@@ -1868,6 +2105,7 @@ public class AdminServiceImpl implements AdminService {
     private Map<String, Object> buildUserMap(SysUser user) {
         Map<String, Object> map = new LinkedHashMap<>();
         map.put("id", user.getId());
+        map.put("userId", user.getId());          // 前端编辑/操作统一用
         map.put("username", user.getUsername());
         map.put("account", user.getUsername());
         map.put("realName", user.getRealName());

@@ -300,4 +300,13 @@ public interface AdminService {
      * @return 导出结果
      */
     Map<String, Object> exportReport(Long semester, Long department, String format);
+
+    // ==================== 系统监控 ====================
+
+    /**
+     * 获取系统监控数据
+     *
+     * @return 监控数据：systemMetrics, userStats, auditSummary, recentLogs
+     */
+    Map<String, Object> getSystemMonitor();
 }

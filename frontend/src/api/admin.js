@@ -106,3 +106,8 @@ export function getAdminOverview(params) {
 export function getWarnings(params) {
   return http.get('/admin/analytics/warnings', { params })
 }
+
+// ==================== System Monitor ====================
+export function getSystemMonitor() {
+  return http.get('/admin/monitor')
+}
