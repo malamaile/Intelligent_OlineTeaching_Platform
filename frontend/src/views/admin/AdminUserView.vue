@@ -1,7 +1,8 @@
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getUsers, createUser, updateUser, updateUserStatus, resetUserPassword, importUsers } from '@/api/admin'
+import { getDepartments, getClasses } from '@/api/common'
 
 const loading = ref(false)
 
@@ -33,6 +34,24 @@ async function fetchUsers() {
   }
 }
 
+// 院系和班级选项（从后端动态获取）
+const departmentOptions = ref([])
+const classOptions = ref([])
+
+async function fetchDepartments() {
+  try {
+    const res = await getDepartments()
+    departmentOptions.value = res.data || []
+  } catch {}
+}
+
+async function fetchClasses(departmentId) {
+  try {
+    const res = await getClasses({ departmentId: departmentId || undefined })
+    classOptions.value = res.data || []
+  } catch {}
+}
+
 // 新增/编辑弹窗
 const dialogVisible = ref(false)
 const isEditing = ref(false)
@@ -41,6 +60,18 @@ const userFormRef = ref(null)
 const userForm = reactive({
   userId: null, account: '', userName: '', role: 'STUDENT', password: '',
   department: '', className: '', email: '', phone: '',
+})
+
+// 院系变更时重新加载班级列表（必须在 userForm 声明之后）
+watch(() => userForm.department, (newDept) => {
+  if (!newDept) {
+    classOptions.value = []
+    userForm.className = ''
+    return
+  }
+  // 按院系名称查找 departmentId
+  const dept = departmentOptions.value.find(d => d.departmentName === newDept)
+  fetchClasses(dept ? dept.departmentId : undefined)
 })
 
 const rules = {
@@ -52,12 +83,27 @@ const rules = {
 function openCreate() {
   isEditing.value = false
   Object.assign(userForm, { userId: null, account: '', userName: '', role: 'STUDENT', password: '', department: '', className: '', email: '', phone: '' })
+  classOptions.value = []
   dialogVisible.value = true
 }
 
 function openEdit(row) {
   isEditing.value = true
-  Object.assign(userForm, { ...row, password: '' })
+  // 后端返回字段名为 id 和 departmentName，需正确映射到 userForm
+  Object.assign(userForm, {
+    userId: row.id || row.userId,           // 后端返回 id
+    account: row.account || row.username,
+    userName: row.userName || row.realName,
+    role: row.role,
+    department: row.department || row.departmentName || '',
+    className: row.className || '',
+    email: row.email || '',
+    phone: row.phone || '',
+    password: '',
+  })
+  // 预加载当前院系对应的班级列表
+  const dept = departmentOptions.value.find(d => d.departmentName === userForm.department)
+  if (dept) fetchClasses(dept.departmentId)
   dialogVisible.value = true
 }
 
@@ -81,7 +127,9 @@ async function handleSave() {
     }
     dialogVisible.value = false
     await fetchUsers()
-  } catch {} finally { saving.value = false }
+  } catch (e) {
+    ElMessage.error(e?.message || '保存失败，请重试')
+  } finally { saving.value = false }
 }
 
 // 批量导入
@@ -107,20 +155,35 @@ function handleFileChange(file) {
 // 状态操作
 async function handleToggleStatus(row) {
   const action = row.statusType === 'ACTIVE' ? '冻结' : '启用'
-  await ElMessageBox.confirm(`确定${action}账号「${row.userName}」吗？`, `确认${action}`, { type: 'warning' })
-  const newStatus = row.statusType === 'ACTIVE' ? 'FROZEN' : 'ACTIVE'
-  await updateUserStatus(row.userId, { status: newStatus })
-  ElMessage.success(`已${action}`)
-  await fetchUsers()
+  try {
+    await ElMessageBox.confirm(`确定${action}账号「${row.userName}」吗？`, `确认${action}`, { type: 'warning' })
+  } catch { return }
+  try {
+    const newStatus = row.statusType === 'ACTIVE' ? 'FROZEN' : 'ACTIVE'
+    await updateUserStatus(row.id || row.userId, { status: newStatus })
+    ElMessage.success(`已${action}`)
+    await fetchUsers()
+  } catch (e) {
+    ElMessage.error(e?.message || '操作失败')
+  }
 }
 
 async function handleResetPassword(row) {
-  await ElMessageBox.confirm(`确定重置「${row.userName}」的密码为默认密码吗？`, '重置密码', { type: 'warning' })
-  await resetUserPassword(row.userId, {})
-  ElMessage.success('密码已重置为默认密码')
+  try {
+    await ElMessageBox.confirm(`确定重置「${row.userName}」的密码为默认密码吗？`, '重置密码', { type: 'warning' })
+  } catch { return }
+  try {
+    await resetUserPassword(row.id || row.userId, {})
+    ElMessage.success('密码已重置为默认密码')
+  } catch (e) {
+    ElMessage.error(e?.message || '重置失败')
+  }
 }
 
-onMounted(fetchUsers)
+onMounted(() => {
+  fetchUsers()
+  fetchDepartments()
+})
 </script>
 
 <template>
@@ -220,15 +283,13 @@ onMounted(fetchUsers)
           </el-col>
         </el-row>
         <el-form-item label="院系" v-if="userForm.role !== 'ADMIN'">
-          <el-select v-model="userForm.department" style="width:100%" placeholder="选择院系">
-            <el-option label="计算机科学学院" value="计算机科学学院" />
-            <el-option label="数学学院" value="数学学院" />
+          <el-select v-model="userForm.department" style="width:100%" placeholder="选择院系" clearable>
+            <el-option v-for="d in departmentOptions" :key="d.departmentId" :label="d.departmentName" :value="d.departmentName" />
           </el-select>
         </el-form-item>
         <el-form-item label="班级" v-if="userForm.role === 'STUDENT'">
-          <el-select v-model="userForm.className" style="width:100%" placeholder="选择班级">
-            <el-option label="软件工程2024-1班" value="软件工程2024-1班" />
-            <el-option label="软件工程2024-2班" value="软件工程2024-2班" />
+          <el-select v-model="userForm.className" style="width:100%" placeholder="选择班级" clearable :disabled="!userForm.department">
+            <el-option v-for="c in classOptions" :key="c.classId" :label="c.className" :value="c.className" />
           </el-select>
         </el-form-item>
         <el-row :gutter="16">

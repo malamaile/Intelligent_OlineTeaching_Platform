@@ -371,8 +371,7 @@ public class AdminController {
         String title = (String) body.get("title");
         String content = (String) body.get("content");
         String scope = (String) body.get("scope");
-        Long department = body.get("department") != null
-                ? Long.valueOf(body.get("department").toString()) : null;
+        Long department = parseDepartmentId(body.get("department"));
         String importance = (String) body.get("importance");
 
         if (title == null || title.isEmpty()) {
@@ -458,6 +457,19 @@ public class AdminController {
             @RequestParam(defaultValue = "10") Integer pageSize) {
         Map<String, Object> data = adminService.getWarnings(department, riskLevel,
                 warningType, page, pageSize);
+        return Result.ok(data);
+    }
+
+    // ==================== 系统监控 ====================
+
+    /**
+     * 获取系统监控数据
+     *
+     * GET /admin/monitor
+     */
+    @GetMapping("/monitor")
+    public Result<Map<String, Object>> getSystemMonitor() {
+        Map<String, Object> data = adminService.getSystemMonitor();
         return Result.ok(data);
     }
 

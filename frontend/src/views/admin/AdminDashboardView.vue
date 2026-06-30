@@ -160,43 +160,48 @@ onMounted(fetchDashboard)
       </el-col>
     </el-row>
 
-    <!-- ====== L2：图表区域（24栅格） ====== -->
-    <el-row :gutter="16">
-      <el-col :xs="24" :lg="15">
-        <div class="card-l2">
+    <!-- ====== L2：图表区域（左2/3 + 右1/3，等高度） ====== -->
+    <el-row :gutter="16" class="chart-row">
+      <el-col :xs="24" :lg="16">
+        <div class="card-l2 chart-card">
           <div class="card-title">本周审核趋势</div>
-          <VChart :option="auditTrendOption" style="height:260px" autoresize />
+          <VChart :option="auditTrendOption" style="height:300px" autoresize />
         </div>
       </el-col>
-      <el-col :xs="24" :lg="9">
-        <div class="card-l2">
+      <el-col :xs="24" :lg="8">
+        <div class="card-l2 chart-card">
           <div class="card-title">用户角色分布</div>
-          <VChart :option="userPieOption" style="height:180px" autoresize />
-        </div>
-        <div class="card-l2">
-          <div class="card-title">快捷操作</div>
-          <div class="quick-actions">
-            <el-button type="primary" @click="router.push('/admin/audit')">
-              <el-icon><Checked /></el-icon>内容审核
-              <el-badge :value="stats.pendingAudits || auditSummary.pendingAudits" type="danger" style="margin-left:4px" />
-            </el-button>
-            <el-button type="success" @click="router.push('/admin/users')">
-              <el-icon><UserFilled /></el-icon>用户管理
-            </el-button>
-            <el-button type="warning" @click="router.push('/admin/announcements')">
-              <el-icon><Notification /></el-icon>发布公告
-            </el-button>
-            <el-button type="info" @click="router.push('/admin/settings')">
-              <el-icon><Setting /></el-icon>系统设置
-            </el-button>
-          </div>
+          <VChart :option="userPieOption" style="height:300px" autoresize />
         </div>
       </el-col>
     </el-row>
 
-    <!-- ====== L3：审核统计 + 操作日志（24栅格） ====== -->
-    <el-row :gutter="16">
-      <el-col :xs="24" :lg="12">
+    <!-- ====== L3：操作日志 + 审核统计（宽度与上图对齐） ====== -->
+    <el-row :gutter="16" style="margin-top:16px">
+      <el-col :xs="24" :lg="16">
+        <div class="card-l3">
+          <div class="card-title">最近操作记录</div>
+          <div class="log-list">
+            <div v-if="!recentLogs.length" style="padding:20px;text-align:center;color:#909399">暂无操作记录</div>
+            <div v-for="(log, idx) in recentLogs" :key="idx" class="log-item">
+              <el-tag :color="bizTypeConfig[log.bizType]?.color" size="small" effect="dark">
+                {{ bizTypeConfig[log.bizType]?.label || log.bizType }}
+              </el-tag>
+              <div class="log-body">
+                <span class="log-operator">{{ log.operator || log.auditor }}</span>
+                <span class="log-action">{{ log.comment || log.result || log.action }}</span>
+              </div>
+              <div class="log-right">
+                <el-tag v-if="log.result === '通过' || log.actionShort === 'APPROVE' || log.action === 'APPROVED'" type="success" size="small" effect="plain">通过</el-tag>
+                <el-tag v-else-if="log.result === '驳回' || log.actionShort === 'REJECT' || log.action === 'REJECTED'" type="danger" size="small" effect="plain">驳回</el-tag>
+                <span v-else class="log-result">{{ log.result || log.action || log.comment }}</span>
+                <span class="log-time">{{ log.time || log.createTime }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </el-col>
+      <el-col :xs="24" :lg="8">
         <div class="card-l3">
           <div class="card-title">审核统计</div>
           <el-row :gutter="12">
@@ -245,30 +250,6 @@ onMounted(fetchDashboard)
           </div>
         </div>
       </el-col>
-
-      <el-col :xs="24" :lg="12">
-        <div class="card-l3">
-          <div class="card-title">最近操作记录</div>
-          <div class="log-list">
-            <div v-if="!recentLogs.length" style="padding:20px;text-align:center;color:#909399">暂无操作记录</div>
-            <div v-for="(log, idx) in recentLogs" :key="idx" class="log-item">
-              <el-tag :color="bizTypeConfig[log.bizType]?.color" size="small" effect="dark">
-                {{ bizTypeConfig[log.bizType]?.label || log.bizType }}
-              </el-tag>
-              <div class="log-body">
-                <span class="log-operator">{{ log.operator || log.auditor }}</span>
-                <span class="log-action">{{ log.comment || log.result || log.action }}</span>
-              </div>
-              <div class="log-right">
-                <el-tag v-if="log.result === '通过' || log.actionShort === 'APPROVE' || log.action === 'APPROVED'" type="success" size="small" effect="plain">通过</el-tag>
-                <el-tag v-else-if="log.result === '驳回' || log.actionShort === 'REJECT' || log.action === 'REJECTED'" type="danger" size="small" effect="plain">驳回</el-tag>
-                <span v-else class="log-result">{{ log.result || log.action || log.comment }}</span>
-                <span class="log-time">{{ log.time || log.createTime }}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </el-col>
     </el-row>
   </div>
 </template>
@@ -276,7 +257,8 @@ onMounted(fetchDashboard)
 <style scoped>
 .page-desc { font-size: 13px; color: #909399; margin-top: 4px; }
 .stat-detail { font-size: 12px; color: #909399; margin-top: 4px; }
-.quick-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.chart-card { display: flex; flex-direction: column; }
+.chart-card :deep(.card-title) { flex-shrink: 0; }
 .audit-stat-item { text-align: center; padding: 8px; }
 .audit-stat-num { font-size: 28px; font-weight: 700; }
 .audit-stat-num.primary { color: #409eff; }
@@ -287,7 +269,7 @@ onMounted(fetchDashboard)
 .breakdown-row { display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 6px; cursor: pointer; font-size: 13px; transition: background 0.15s; }
 .breakdown-row:hover { background: #f5f7fa; }
 .breakdown-row span:first-child { flex: 1; color: #303133; }
-.log-list { display: flex; flex-direction: column; max-height: 260px; overflow-y: auto; }
+.log-list { display: flex; flex-direction: column; max-height: 300px; overflow-y: auto; }
 .log-item { display: flex; align-items: center; gap: 8px; padding: 9px 0; border-bottom: 1px solid #f5f5f5; font-size: 13px; }
 .log-body { flex: 1; min-width: 0; }
 .log-operator { font-weight: 500; color: #303133; margin-right: 6px; }

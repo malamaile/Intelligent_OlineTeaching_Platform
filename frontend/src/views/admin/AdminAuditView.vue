@@ -11,12 +11,13 @@ const courseAuditList = ref([])
 const courseLogs = ref([])
 const courseStats = reactive({ pending: 0, approved: 0, rejected: 0 })
 const coursePagination = reactive({ page: 1, pageSize: 10, total: 0 })
+const courseStatusFilter = ref('')
 
 async function fetchCourseAudit() {
   courseLoading.value = true
   try {
     const [listRes, statsRes, logsRes] = await Promise.all([
-      getAuditCourses({ status: 'PENDING', page: coursePagination.page, pageSize: coursePagination.pageSize }),
+      getAuditCourses({ status: courseStatusFilter.value || undefined, page: coursePagination.page, pageSize: coursePagination.pageSize }),
       getCourseAuditStatistics(),
       getAuditCourseLogs({ page: 1, pageSize: 10 }),
     ])
@@ -38,12 +39,13 @@ const taskLoading = ref(false)
 const taskAuditList = ref([])
 const taskStats = reactive({ pending: 0, total: 0 })
 const taskPagination = reactive({ page: 1, pageSize: 10, total: 0 })
+const taskStatusFilter = ref('')
 
 async function fetchTaskAudit() {
   taskLoading.value = true
   try {
     const [listRes, statsRes] = await Promise.all([
-      getAuditTasks({ status: 'PENDING', page: taskPagination.page, pageSize: taskPagination.pageSize }),
+      getAuditTasks({ status: taskStatusFilter.value || undefined, page: taskPagination.page, pageSize: taskPagination.pageSize }),
       getTaskAuditStatistics(),
     ])
     taskAuditList.value = listRes.data.records || listRes.data
@@ -62,12 +64,13 @@ const resourceLoading = ref(false)
 const resourceAuditList = ref([])
 const resourceStats = reactive({ pending: 0, total: 0, downloads: 0 })
 const resourcePagination = reactive({ page: 1, pageSize: 10, total: 0 })
+const resourceStatusFilter = ref('')
 
 async function fetchResourceAudit() {
   resourceLoading.value = true
   try {
     const [listRes, statsRes] = await Promise.all([
-      getAuditResources({ status: 'PENDING', page: resourcePagination.page, pageSize: resourcePagination.pageSize }),
+      getAuditResources({ status: resourceStatusFilter.value || undefined, page: resourcePagination.page, pageSize: resourcePagination.pageSize }),
       getResourceAuditStatistics(),
     ])
     resourceAuditList.value = listRes.data.records || listRes.data
@@ -143,6 +146,16 @@ onMounted(fetchCourseAudit)
             <div class="stat-card"><div class="stat-label">已驳回</div><div class="stat-value danger">{{ courseStats.rejected }}</div></div>
           </div>
 
+          <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center">
+            <span style="font-size:13px;color:#606266">审核状态：</span>
+            <el-select v-model="courseStatusFilter" size="small" style="width:110px" @change="fetchCourseAudit">
+              <el-option label="全部" value="" />
+              <el-option label="待审核" value="PENDING" />
+              <el-option label="已通过" value="APPROVED" />
+              <el-option label="已驳回" value="REJECTED" />
+            </el-select>
+          </div>
+
           <el-table :data="courseAuditList" v-loading="courseLoading" stripe>
             <el-table-column prop="courseName" label="课程名称" min-width="130" />
             <el-table-column prop="courseCode" label="代码" width="70" />
@@ -186,6 +199,15 @@ onMounted(fetchCourseAudit)
             <div class="stat-card"><div class="stat-label">待审核</div><div class="stat-value warning">{{ taskStats.pending }}</div></div>
             <div class="stat-card"><div class="stat-label">各院系完成率</div><div class="stat-value primary">85%</div></div>
           </div>
+          <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center">
+            <span style="font-size:13px;color:#606266">审核状态：</span>
+            <el-select v-model="taskStatusFilter" size="small" style="width:110px" @change="fetchTaskAudit">
+              <el-option label="全部" value="" />
+              <el-option label="待审核" value="PENDING" />
+              <el-option label="已通过" value="APPROVED" />
+              <el-option label="已驳回" value="REJECTED" />
+            </el-select>
+          </div>
           <el-table :data="taskAuditList" v-loading="taskLoading" stripe>
             <el-table-column prop="title" label="任务名称" min-width="150" />
             <el-table-column prop="taskType" label="类型" width="60"><template #default="{ row }">{{ row.taskType==='EXPERIMENT'?'实验':'实训' }}</template></el-table-column>
@@ -210,8 +232,17 @@ onMounted(fetchCourseAudit)
         <el-tab-pane label="教学资源" name="resources">
           <div class="stat-cards" style="margin-bottom:16px">
             <div class="stat-card"><div class="stat-label">待审核</div><div class="stat-value warning">{{ resourceStats.pending }}</div></div>
-            <div class="stat-card"><div class="stat-label">总资源数</div><div class="stat-value primary">{{ resourceStats.total || 500 }}</div></div>
-            <div class="stat-card"><div class="stat-label">总下载量</div><div class="stat-value success">{{ resourceStats.downloads || 15000 }}</div></div>
+            <div class="stat-card"><div class="stat-label">总资源数</div><div class="stat-value primary">{{ resourceStats.total }}</div></div>
+            <div class="stat-card"><div class="stat-label">总下载量</div><div class="stat-value success">{{ resourceStats.downloads }}</div></div>
+          </div>
+          <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center">
+            <span style="font-size:13px;color:#606266">审核状态：</span>
+            <el-select v-model="resourceStatusFilter" size="small" style="width:110px" @change="fetchResourceAudit">
+              <el-option label="全部" value="" />
+              <el-option label="待审核" value="PENDING" />
+              <el-option label="已通过" value="APPROVED" />
+              <el-option label="已驳回" value="REJECTED" />
+            </el-select>
           </div>
           <el-table :data="resourceAuditList" v-loading="resourceLoading" stripe>
             <el-table-column prop="name" label="资源名称" min-width="160" />

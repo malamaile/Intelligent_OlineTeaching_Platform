@@ -11,6 +11,7 @@ const pagination = reactive({ page: 1, pageSize: 10, total: 0 })
 const scopeConfig = {
   SCHOOL_WIDE: { label: '全校', type: 'danger' },
   DEPARTMENT_WIDE: { label: '院系', type: 'warning' },
+  CLASS_ONLY: { label: '班级', type: 'primary' },
 }
 
 const searchForm = reactive({ keyword: '', scope: '' })
@@ -64,11 +65,21 @@ async function handlePublish() {
   if (!valid) return
   publishing.value = true
   try {
+    // 构建干净的数据：全校公告不携带 department 字段
+    const payload = {
+      title: announceForm.title,
+      content: announceForm.content,
+      scope: announceForm.scope,
+      importance: announceForm.importance,
+    }
+    if (announceForm.scope === 'DEPARTMENT_WIDE' && announceForm.department) {
+      payload.department = announceForm.department
+    }
     if (isEditing.value) {
-      await updateAnnouncement(announceForm.announcementId, announceForm)
+      await updateAnnouncement(announceForm.announcementId, payload)
       ElMessage.success('公告已更新')
     } else {
-      await createAnnouncement(announceForm)
+      await createAnnouncement(payload)
       ElMessage.success('公告已发布')
     }
     dialogVisible.value = false
