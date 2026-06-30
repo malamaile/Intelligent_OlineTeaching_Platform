@@ -1,139 +1,127 @@
 <script setup>
-import { ref, reactive, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
-import { BarChart, PieChart, LineChart, GaugeChart } from 'echarts/charts'
+import { BarChart, PieChart, LineChart } from 'echarts/charts'
 import {
   TitleComponent, TooltipComponent, LegendComponent,
-  GridComponent, ToolboxComponent,
+  GridComponent,
 } from 'echarts/components'
+import { getSystemMonitor } from '@/api/admin'
 
 use([
   CanvasRenderer,
-  BarChart, PieChart, LineChart, GaugeChart,
+  BarChart, PieChart, LineChart,
   TitleComponent, TooltipComponent, LegendComponent,
-  GridComponent, ToolboxComponent,
+  GridComponent,
 ])
 
 // ========== 时间 ==========
 const now = ref(new Date())
 let timer = null
 
-// ========== 统计卡片 ==========
-const statsCards = ref([
-  { label: '在线用户', value: 128, icon: 'User', color: '#8ec2f7', bg: '#ecf5ff' },
-  { label: 'CPU 使用率', value: '42%', icon: 'Cpu', color: '#bce7a7', bg: '#f0f9eb' },
-  { label: '内存使用率', value: '68%', icon: 'Memo', color: '#f8c982', bg: '#fdf6ec' },
-  { label: '磁盘使用率', value: '55%', icon: 'FolderOpened', color: '#909399', bg: '#f5f7fa' },
-])
+// ========== 后端数据 ==========
+const loading = ref(true)
+const monitorData = ref({
+  systemMetrics: {},
+  userStats: {},
+  auditSummary: {},
+  recentLogs: [],
+  onlineUsers: [],
+})
+
+// ========== 统计卡片（从后端数据计算） ==========
+const statsCards = computed(() => {
+  const m = monitorData.value.systemMetrics
+  const u = monitorData.value.userStats
+  return [
+    { label: '用户总数', value: u.totalUsers || 0, unit: '人', icon: 'User', color: '#8ec2f7', bg: '#ecf5ff' },
+    { label: '今日活跃', value: u.todayActive || 0, unit: '人', icon: 'Connection', color: '#bce7a7', bg: '#f0f9eb' },
+    { label: '内存使用', value: m.memoryUsagePercent != null ? m.memoryUsagePercent + '%' : '-', unit: '', icon: 'Memo', color: '#f8c982', bg: '#fdf6ec' },
+    { label: '磁盘使用', value: m.diskUsagePercent != null ? m.diskUsagePercent + '%' : '-', unit: '', icon: 'FolderOpened', color: '#909399', bg: '#f5f7fa' },
+  ]
+})
 
 // ========== 待审核统计 ==========
-const auditStats = ref({
-  pendingCourses: 5,
-  pendingTasks: 12,
-  pendingResources: 8,
-  todayApproved: 23,
-  todayRejected: 3,
-})
+const auditStats = computed(() => ({
+  pendingCourses: monitorData.value.auditSummary.pendingCourses || 0,
+  pendingTasks: monitorData.value.auditSummary.pendingTasks || 0,
+  pendingResources: monitorData.value.auditSummary.pendingResources || 0,
+  todayApproved: monitorData.value.auditSummary.todayApproved || 0,
+  todayRejected: monitorData.value.auditSummary.todayRejected || 0,
+}))
 
-// ========== CPU / 内存趋势图 ==========
-const resourceTrendOption = reactive({
+// ========== 系统资源使用趋势（由于无历史数据，展示当前快照） ==========
+const resourceTrendOption = computed(() => ({
   tooltip: { trigger: 'axis' },
-  legend: { data: ['CPU使用率', '内存使用率'], bottom: 0 },
+  legend: { data: ['JVM内存使用率'], bottom: 0 },
   grid: { left: 50, right: 20, top: 20, bottom: 30 },
-  xAxis: {
-    type: 'category',
-    data: ['14:00', '14:10', '14:20', '14:30', '14:40', '14:50', '15:00', '15:10', '15:20', '15:30'],
-  },
-  yAxis: { type: 'value', max: 100, axisLabel: { formatter: '{value}%' } },
+  xAxis: { type: 'category', data: ['总内存', '已使用', '可用', '最大'] },
+  yAxis: { type: 'value', axisLabel: { formatter: '{value} MB' } },
   series: [
     {
-      name: 'CPU使用率',
-      type: 'line',
-      smooth: true,
-      data: [35, 42, 38, 45, 55, 48, 52, 42, 38, 42],
-      areaStyle: { opacity: 0.15 },
-    },
-    {
-      name: '内存使用率',
-      type: 'line',
-      smooth: true,
-      data: [60, 62, 65, 63, 68, 70, 72, 68, 66, 68],
-      areaStyle: { opacity: 0.15 },
-    },
-  ],
-})
-
-// ========== 请求量柱状图 ==========
-const requestBarOption = reactive({
-  tooltip: { trigger: 'axis' },
-  grid: { left: 50, right: 20, top: 20, bottom: 30 },
-  xAxis: {
-    type: 'category',
-    data: ['周一', '周二', '周三', '周四', '周五', '周六', '周日'],
-  },
-  yAxis: { type: 'value' },
-  series: [
-    {
-      name: 'API请求量',
+      name: 'JVM内存',
       type: 'bar',
-      data: [3200, 4500, 5100, 4800, 3900, 1200, 800],
+      data: [
+        monitorData.value.systemMetrics.memoryTotal || 0,
+        monitorData.value.systemMetrics.memoryUsed || 0,
+        monitorData.value.systemMetrics.memoryTotal - (monitorData.value.systemMetrics.memoryUsed || 0),
+        monitorData.value.systemMetrics.memoryMax || 0,
+      ],
       itemStyle: {
-        color: {
-          type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
-          colorStops: [
-            { offset: 0, color: '#409eff' },
-            { offset: 1, color: '#a0cfff' },
-          ],
-        },
+        color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: '#409eff' }, { offset: 1, color: '#a0cfff' }] },
         borderRadius: [6, 6, 0, 0],
       },
     },
   ],
-})
+}))
 
-// ========== 审核状态饼图 ==========
-const auditPieOption = reactive({
-  tooltip: { trigger: 'item' },
-  legend: { bottom: 0 },
+// ========== API 请求量（暂无数据，展示用户角色分布） ==========
+const requestBarOption = computed(() => ({
+  tooltip: { trigger: 'axis' },
+  grid: { left: 50, right: 20, top: 20, bottom: 30 },
+  xAxis: { type: 'category', data: ['学生', '教师', '管理员', '活跃用户', '总用户'] },
+  yAxis: { type: 'value' },
   series: [
     {
-      name: '审核状态',
-      type: 'pie',
-      radius: ['50%', '75%'],
-      center: ['50%', '45%'],
-      label: { show: false },
-      emphasis: { label: { show: true, fontSize: 16, fontWeight: 'bold' } },
+      name: '人数',
+      type: 'bar',
       data: [
-        { value: 120, name: '已通过', itemStyle: { color: '#67c23a' } },
-        { value: 25, name: '待审核', itemStyle: { color: '#e6a23c' } },
-        { value: 8, name: '已驳回', itemStyle: { color: '#f56c6c' } },
+        monitorData.value.userStats.students || 0,
+        monitorData.value.userStats.teachers || 0,
+        monitorData.value.userStats.admins || 0,
+        monitorData.value.userStats.activeUsers || 0,
+        monitorData.value.userStats.totalUsers || 0,
       ],
+      itemStyle: {
+        color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: '#67c23a' }, { offset: 1, color: '#b3e19d' }] },
+        borderRadius: [6, 6, 0, 0],
+      },
     },
   ],
-})
+}))
 
-// ========== 在线用户列表 ==========
-const onlineUsers = ref([
-  { account: '2024001', userName: '张三', role: 'STUDENT', ip: '192.168.1.101', loginTime: '2026-06-18 15:20:00', duration: 35 },
-  { account: 't001', userName: '王老师', role: 'TEACHER', ip: '192.168.1.50', loginTime: '2026-06-18 14:30:00', duration: 85 },
-  { account: '2024100', userName: '李四', role: 'STUDENT', ip: '192.168.1.102', loginTime: '2026-06-18 15:10:00', duration: 45 },
-  { account: 'admin', userName: '管理员张', role: 'ADMIN', ip: '192.168.1.1', loginTime: '2026-06-18 08:00:00', duration: 475 },
-  { account: '2024030', userName: '王五', role: 'STUDENT', ip: '192.168.1.103', loginTime: '2026-06-18 15:25:00', duration: 30 },
-])
+// ========== 审核状态饼图（真实数据） ==========
+const auditPieOption = computed(() => ({
+  tooltip: { trigger: 'item' },
+  legend: { bottom: 0 },
+  series: [{
+    name: '审核状态',
+    type: 'pie',
+    radius: ['50%', '75%'],
+    center: ['50%', '45%'],
+    label: { show: false },
+    emphasis: { label: { show: true, fontSize: 16, fontWeight: 'bold' } },
+    data: [
+      { value: monitorData.value.auditSummary.totalApproved || 0, name: '已通过', itemStyle: { color: '#67c23a' } },
+      { value: monitorData.value.auditSummary.totalPending || 0, name: '待审核', itemStyle: { color: '#e6a23c' } },
+      { value: monitorData.value.auditSummary.totalRejected || 0, name: '已驳回', itemStyle: { color: '#f56c6c' } },
+    ],
+  }],
+}))
 
 // ========== 操作日志 ==========
-const logs = ref([
-  { time: '2026-06-18 15:30:12', user: '管理员张', action: '审核通过课程《数据结构》', type: 'AUDIT', level: 'INFO' },
-  { time: '2026-06-18 15:28:05', user: '王老师', action: '上传教学资源《排序算法课件》', type: 'UPLOAD', level: 'INFO' },
-  { time: '2026-06-18 15:25:33', user: '张三', action: '提交实验报告《实验二》', type: 'SUBMIT', level: 'INFO' },
-  { time: '2026-06-18 15:20:01', user: '系统', action: '自动备份数据库完成', type: 'SYSTEM', level: 'INFO' },
-  { time: '2026-06-18 15:15:48', user: '李四', action: '登录失败：密码错误（第3次）', type: 'LOGIN', level: 'WARN' },
-  { time: '2026-06-18 15:10:22', user: '管理员张', action: '冻结账号 2024150（违规操作）', type: 'USER', level: 'WARN' },
-  { time: '2026-06-18 15:05:00', user: '系统', action: '学情诊断定时任务执行完成', type: 'SYSTEM', level: 'INFO' },
-])
-
 const logLevelConfig = {
   INFO: { type: 'info', label: '信息' },
   WARN: { type: 'warning', label: '警告' },
@@ -141,11 +129,31 @@ const logLevelConfig = {
 }
 
 function formatDuration(min) {
+  if (min == null || min < 0) return '-'
   if (min < 60) return min + '分钟'
   return Math.floor(min / 60) + '小时' + (min % 60) + '分钟'
 }
 
+async function fetchMonitorData() {
+  loading.value = true
+  try {
+    const res = await getSystemMonitor()
+    if (res.data) {
+      monitorData.value = {
+        systemMetrics: res.data.systemMetrics || {},
+        userStats: res.data.userStats || {},
+        auditSummary: res.data.auditSummary || {},
+        recentLogs: res.data.recentLogs || [],
+        onlineUsers: res.data.onlineUsers || [],
+      }
+    }
+  } finally {
+    loading.value = false
+  }
+}
+
 onMounted(() => {
+  fetchMonitorData()
   timer = setInterval(() => {
     now.value = new Date()
   }, 1000)
@@ -157,11 +165,12 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="page-container">
+  <div class="page-container" v-loading="loading">
     <div class="page-header">
       <h1 class="page-title">系统监控</h1>
       <p class="page-desc">
-        服务运行时间：<strong>7天12小时35分</strong> &nbsp;|&nbsp;
+        JVM 最大内存：<strong>{{ monitorData.systemMetrics.memoryMax || '-' }} MB</strong> &nbsp;|&nbsp;
+        CPU 核心数：<strong>{{ monitorData.systemMetrics.cpuCores || '-' }}</strong> &nbsp;|&nbsp;
         当前时间：{{ now.toLocaleString() }}
       </p>
     </div>
@@ -183,7 +192,7 @@ onBeforeUnmount(() => {
     <el-row :gutter="16">
       <el-col :span="14">
         <div class="card-wrapper">
-          <div class="card-title">资源使用趋势</div>
+          <div class="card-title">JVM 内存状态</div>
           <VChart :option="resourceTrendOption" style="height: 280px" autoresize />
         </div>
       </el-col>
@@ -199,7 +208,7 @@ onBeforeUnmount(() => {
     <el-row :gutter="16">
       <el-col :span="14">
         <div class="card-wrapper">
-          <div class="card-title">本周 API 请求量</div>
+          <div class="card-title">用户分布</div>
           <VChart :option="requestBarOption" style="height: 240px" autoresize />
         </div>
       </el-col>
@@ -238,17 +247,16 @@ onBeforeUnmount(() => {
       <el-col :span="12">
         <div class="card-wrapper">
           <div class="card-title">当前在线用户</div>
-          <el-table :data="onlineUsers" size="small" stripe max-height="260">
+          <el-table :data="monitorData.onlineUsers" size="small" stripe max-height="260">
             <el-table-column prop="account" label="账号" width="90" />
             <el-table-column prop="userName" label="姓名" width="80" />
-            <el-table-column prop="role" label="角色" width="70">
+            <el-table-column label="角色" width="70">
               <template #default="{ row }">
                 <el-tag size="small">{{ row.role === 'STUDENT' ? '学生' : row.role === 'TEACHER' ? '教师' : '管理员' }}</el-tag>
               </template>
             </el-table-column>
-            <el-table-column prop="ip" label="IP地址" width="120" />
-            <el-table-column prop="loginTime" label="登录时间" width="150" />
-            <el-table-column label="在线时长" width="80">
+            <el-table-column prop="lastLoginTime" label="最后登录" width="150" />
+            <el-table-column label="活动时长" width="90">
               <template #default="{ row }">{{ formatDuration(row.duration) }}</template>
             </el-table-column>
           </el-table>
@@ -258,7 +266,8 @@ onBeforeUnmount(() => {
         <div class="card-wrapper">
           <div class="card-title">操作日志</div>
           <div class="log-list">
-            <div v-for="(log, idx) in logs" :key="idx" class="log-item">
+            <div v-if="!monitorData.recentLogs.length" style="text-align:center;color:#909399;padding:20px">暂无操作记录</div>
+            <div v-for="(log, idx) in monitorData.recentLogs" :key="idx" class="log-item">
               <el-tag :type="logLevelConfig[log.level]?.type" size="small" effect="plain">
                 {{ logLevelConfig[log.level]?.label }}
               </el-tag>
