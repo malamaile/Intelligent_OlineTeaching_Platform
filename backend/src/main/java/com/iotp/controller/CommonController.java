@@ -43,6 +43,25 @@ public class CommonController {
     @Autowired
     private SysConfigMapper sysConfigMapper;
 
+    /** 从系统配置表读取字符串值 */
+    private String getConfigValue(String key, String defaultValue) {
+        try {
+            com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<SysConfig> wrapper =
+                    new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<>();
+            wrapper.eq(SysConfig::getConfigKey, key);
+            SysConfig cfg = sysConfigMapper.selectOne(wrapper);
+            return (cfg != null && cfg.getConfigValue() != null) ? cfg.getConfigValue() : defaultValue;
+        } catch (Exception e) { return defaultValue; }
+    }
+
+    /** 从系统配置表读取长整数值 */
+    private long getConfigLong(String key, long defaultValue) {
+        try {
+            String val = getConfigValue(key, String.valueOf(defaultValue));
+            return Long.parseLong(val);
+        } catch (NumberFormatException e) { return defaultValue; }
+    }
+
     /**
      * 6.2 获取院系列表
      */
@@ -161,6 +180,28 @@ public class CommonController {
 
         if (file.isEmpty()) {
             return Result.badRequest("文件不能为空");
+        }
+
+        // 读取系统配置：文件大小限制 和 允许的文件类型
+        long maxFileSize = getConfigLong("max_file_upload_size", 104857600L); // 默认100MB
+        if (file.getSize() > maxFileSize) {
+            return Result.error(400, "文件大小超过限制（最大 " + (maxFileSize / 1048576) + " MB）");
+        }
+
+        String allowedTypes = getConfigValue("allowed_file_types", "");
+        if (allowedTypes != null && !allowedTypes.isEmpty()) {
+            String originalName = file.getOriginalFilename();
+            String ext = "";
+            if (originalName != null && originalName.contains(".")) {
+                ext = originalName.substring(originalName.lastIndexOf(".") + 1).toLowerCase();
+            }
+            if (!ext.isEmpty()) {
+                java.util.Set<String> allowed = new java.util.HashSet<>(
+                        java.util.Arrays.asList(allowedTypes.split(",")));
+                if (!allowed.contains(ext)) {
+                    return Result.error(400, "不支持的文件类型：" + ext + "（允许：" + allowedTypes + "）");
+                }
+            }
         }
 
         try {

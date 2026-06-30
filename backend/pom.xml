@@ -36,6 +36,12 @@
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
 
+        <!-- Spring AOP（面向切面编程，用于操作日志等） -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-aop</artifactId>
+        </dependency>
+
         <!-- MyBatis-Plus Starter（集成 Spring Boot + MyBatis + 分页） -->
         <dependency>
             <groupId>com.baomidou</groupId>

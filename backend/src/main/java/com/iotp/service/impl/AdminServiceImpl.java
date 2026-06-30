@@ -115,6 +115,9 @@ public class AdminServiceImpl implements AdminService {
     private SysAuditLogMapper sysAuditLogMapper;
 
     @Autowired
+    private com.iotp.mapper.SysOperationLogMapper sysOperationLogMapper;
+
+    @Autowired
     private LearningAnalyticsDailyMapper analyticsDailyMapper;
 
     @Autowired
@@ -1641,13 +1644,17 @@ public class AdminServiceImpl implements AdminService {
             }
         }
 
-        // 5. 等级分布（优秀>=90, 良好80-89, 中等70-79, 及格60-69, 不及格<60）
+        // 5. 等级分布（从 sys_config 表读取阈值）
+        int excellentThreshold = getConfigInt("excellent_min_score",
+                getConfigInt("excellent_threshold", 85));
+        int goodThreshold = getConfigInt("good_min_score",
+                getConfigInt("good_threshold", 70));
+
         Map<String, Long> levelDistribution = new LinkedHashMap<>();
-        levelDistribution.put("excellent", 0L); // >=90
-        levelDistribution.put("good", 0L);      // 80-89
-        levelDistribution.put("medium", 0L);    // 70-79
-        levelDistribution.put("pass", 0L);      // 60-69
-        levelDistribution.put("fail", 0L);      // <60
+        levelDistribution.put("excellent", 0L); // >= excellentThreshold
+        levelDistribution.put("good", 0L);      // >= goodThreshold
+        levelDistribution.put("pass", 0L);      // >= 60
+        levelDistribution.put("fail", 0L);      // < 60
 
         if (semId != null) {
             QueryWrapper<StudentGrade> allGradeQw = new QueryWrapper<>();
@@ -1657,12 +1664,10 @@ public class AdminServiceImpl implements AdminService {
             for (StudentGrade g : allGrades) {
                 if (g.getFinalGrade() == null) continue;
                 int score = g.getFinalGrade().intValue();
-                if (score >= 90) {
+                if (score >= excellentThreshold) {
                     levelDistribution.put("excellent", levelDistribution.get("excellent") + 1);
-                } else if (score >= 80) {
+                } else if (score >= goodThreshold) {
                     levelDistribution.put("good", levelDistribution.get("good") + 1);
-                } else if (score >= 70) {
-                    levelDistribution.put("medium", levelDistribution.get("medium") + 1);
                 } else if (score >= 60) {
                     levelDistribution.put("pass", levelDistribution.get("pass") + 1);
                 } else {
@@ -2009,6 +2014,48 @@ public class AdminServiceImpl implements AdminService {
         return csv.toString();
     }
 
+    // ==================== 操作日志 ====================
+
+    @Override
+    public IPage<Map<String, Object>> getOperationLogs(String module, String keyword,
+                                                        Integer page, Integer pageSize) {
+        Page<com.iotp.entity.SysOperationLog> logPage = new Page<>(page, pageSize);
+        QueryWrapper<com.iotp.entity.SysOperationLog> qw = new QueryWrapper<>();
+        if (module != null && !module.isEmpty()) {
+            qw.eq("module", module);
+        }
+        if (keyword != null && !keyword.isEmpty()) {
+            qw.and(w -> w.like("description", keyword)
+                    .or().like("operator_name", keyword));
+        }
+        qw.orderByDesc("create_time");
+
+        IPage<com.iotp.entity.SysOperationLog> pageResult = sysOperationLogMapper.selectPage(logPage, qw);
+
+        List<Map<String, Object>> list = new ArrayList<>();
+        for (com.iotp.entity.SysOperationLog ol : pageResult.getRecords()) {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("id", ol.getId());
+            item.put("module", ol.getModule());
+            item.put("operation", ol.getOperation());
+            item.put("description", ol.getDescription());
+            item.put("operatorName", ol.getOperatorName());
+            item.put("requestMethod", ol.getRequestMethod());
+            item.put("requestUrl", ol.getRequestUrl());
+            item.put("resultStatus", ol.getResultStatus());
+            item.put("errorMsg", ol.getErrorMsg());
+            item.put("durationMs", ol.getDurationMs());
+            item.put("ip", ol.getIp());
+            item.put("createTime", ol.getCreateTime());
+            list.add(item);
+        }
+
+        Page<Map<String, Object>> resultPage = new Page<>(logPage.getCurrent(), logPage.getSize());
+        resultPage.setTotal(pageResult.getTotal());
+        resultPage.setRecords(list);
+        return resultPage;
+    }
+
     // ==================== 系统监控 ====================
 
     @Override
@@ -2133,24 +2180,22 @@ public class AdminServiceImpl implements AdminService {
         auditSummary.put("todayRejected", todayRejected);
         result.put("auditSummary", auditSummary);
 
-        // 4. 最近操作日志（最近20条审核日志）
-        Page<SysAuditLog> logPage = new Page<>(1, 20);
-        QueryWrapper<SysAuditLog> logQw = new QueryWrapper<>();
+        // 4. 最近操作日志（最近 30 条，来自 sys_operation_log）
+        Page<com.iotp.entity.SysOperationLog> logPage = new Page<>(1, 30);
+        QueryWrapper<com.iotp.entity.SysOperationLog> logQw = new QueryWrapper<>();
         logQw.orderByDesc("create_time");
-        IPage<SysAuditLog> logPageResult = sysAuditLogMapper.selectPage(logPage, logQw);
+        IPage<com.iotp.entity.SysOperationLog> logPageResult = sysOperationLogMapper.selectPage(logPage, logQw);
 
         List<Map<String, Object>> logList = new ArrayList<>();
-        for (SysAuditLog al : logPageResult.getRecords()) {
-            String actionCn = AUDIT_APPROVED.equals(al.getAction()) ? "审核通过"
-                    : AUDIT_REJECTED.equals(al.getAction()) ? "审核驳回" : al.getAction();
-            String level = AUDIT_REJECTED.equals(al.getAction()) ? "WARN" : "INFO";
+        for (com.iotp.entity.SysOperationLog ol : logPageResult.getRecords()) {
+            String level = (ol.getResultStatus() != null && ol.getResultStatus() == 0) ? "WARN" : "INFO";
 
             Map<String, Object> logItem = new LinkedHashMap<>();
-            logItem.put("time", al.getCreateTime());
-            logItem.put("user", al.getOperatorName());
-            logItem.put("action", actionCn + "「" + al.getBizName() + "」"
-                    + (al.getComment() != null && !al.getComment().isEmpty() ? "：" + al.getComment() : ""));
-            logItem.put("type", al.getBizType());
+            logItem.put("time", ol.getCreateTime());
+            logItem.put("user", ol.getOperatorName());
+            logItem.put("action", ol.getDescription() != null ? ol.getDescription()
+                    : ol.getModule() + " - " + ol.getOperation());
+            logItem.put("type", ol.getModule());
             logItem.put("level", level);
             logList.add(logItem);
         }
@@ -2422,5 +2467,18 @@ public class AdminServiceImpl implements AdminService {
         } catch (NumberFormatException e) {
             return defaultValue;
         }
+    }
+
+    /** 从 sys_config 表读取整数配置 */
+    private int getConfigInt(String key, int defaultValue) {
+        try {
+            QueryWrapper<SysConfig> qw = new QueryWrapper<>();
+            qw.eq("config_key", key);
+            SysConfig cfg = sysConfigMapper.selectOne(qw);
+            if (cfg != null && cfg.getConfigValue() != null) {
+                return Integer.parseInt(cfg.getConfigValue().trim());
+            }
+        } catch (Exception e) { /* ignore */ }
+        return defaultValue;
     }
 }

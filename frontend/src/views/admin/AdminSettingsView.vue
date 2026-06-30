@@ -1,5 +1,5 @@
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getSettings, updateSettings } from '@/api/admin'
 
@@ -80,6 +80,31 @@ const fileTypeOptions = [
   'mp4', 'avi', 'mov', 'jpg', 'jpeg', 'png', 'gif', 'zip', 'rar',
 ]
 
+// 动态生成学期选项（当前年前后各推一年）
+const semesterOptions = computed(() => {
+  const now = new Date()
+  const y = now.getFullYear()
+  const list = []
+  for (let i = -1; i <= 1; i++) {
+    const start = y + i
+    const end = start + 1
+    list.push({ label: `${start}-${end} 春季学期`, value: `${start}-${end}-2` })
+    list.push({ label: `${start}-${end} 秋季学期`, value: `${start}-${end}-1` })
+  }
+  return list
+})
+
+const schoolYearOptions = computed(() => {
+  const now = new Date()
+  const y = now.getFullYear()
+  const list = []
+  for (let i = -1; i <= 1; i++) {
+    const start = y + i
+    list.push({ label: `${start}-${start + 1} 学年`, value: `${start}-${start + 1}` })
+  }
+  return list
+})
+
 onMounted(fetchSettings)
 </script>
 
@@ -90,23 +115,26 @@ onMounted(fetchSettings)
     </div>
 
     <el-row :gutter="20">
-      <!-- 基础参数 -->
-      <el-col :span="14">
+      <!-- 基础参数 1/3 -->
+      <el-col :span="8">
         <div class="card-wrapper">
           <div class="card-title">基础参数配置</div>
-          <el-form label-width="140px">
+          <el-form label-width="120px">
             <el-form-item label="当前学期">
-              <el-input v-model="settings.currentSemester" style="width:200px" />
+              <el-select v-model="settings.currentSemester">
+                <el-option v-for="s in semesterOptions" :key="s.value" :label="s.label" :value="s.value" />
+              </el-select>
             </el-form-item>
             <el-form-item label="当前学年">
-              <el-input v-model="settings.currentSchoolYear" style="width:200px" />
+              <el-select v-model="settings.currentSchoolYear">
+                <el-option v-for="s in schoolYearOptions" :key="s.value" :label="s.label" :value="s.value" />
+              </el-select>
             </el-form-item>
-            <el-form-item label="最大上传文件大小">
+            <el-form-item label="最大上传大小">
               <el-input-number v-model="settings.maxFileUploadSize" :min="1" :max="500" /> MB
-              <span style="margin-left:8px;font-size:12px;color:#909399">单文件上传上限</span>
             </el-form-item>
             <el-form-item label="允许上传格式">
-              <el-select v-model="settings.allowedFileTypes" multiple style="width:100%" placeholder="选择允许的文件类型">
+              <el-select v-model="settings.allowedFileTypes" multiple placeholder="选择文件类型">
                 <el-option v-for="ft in fileTypeOptions" :key="ft" :label="ft" :value="ft" />
               </el-select>
             </el-form-item>
@@ -114,27 +142,28 @@ onMounted(fetchSettings)
         </div>
       </el-col>
 
-      <!-- 学情规则 -->
-      <el-col :span="10">
+      <!-- 学情诊断规则 1/3 -->
+      <el-col :span="8">
         <div class="card-wrapper">
           <div class="card-title">学情诊断规则</div>
-          <el-form label-width="120px">
+          <el-form label-width="100px">
             <el-form-item label="优秀最低分">
               <el-input-number v-model="settings.academicThresholds.excellentMinScore" :min="0" :max="100" />
-              <span style="margin-left:8px;font-size:12px;color:#909399">≥ 此分数判定为优秀</span>
             </el-form-item>
             <el-form-item label="良好最低分">
               <el-input-number v-model="settings.academicThresholds.goodMinScore" :min="0" :max="100" />
-              <span style="margin-left:8px;font-size:12px;color:#909399">≥ 此分数判定为良好，低于此分为待提升</span>
             </el-form-item>
           </el-form>
         </div>
+      </el-col>
 
-        <div class="card-wrapper" style="margin-top:16px">
+      <!-- 密码规则 1/3 -->
+      <el-col :span="8">
+        <div class="card-wrapper">
           <div class="card-title">密码规则</div>
-          <el-form label-width="120px">
+          <el-form label-width="100px">
             <el-form-item label="默认密码">
-              <el-input v-model="settings.passwordRule.defaultPassword" style="width:180px" />
+              <el-input v-model="settings.passwordRule.defaultPassword" />
             </el-form-item>
             <el-form-item label="最小长度">
               <el-input-number v-model="settings.passwordRule.minLength" :min="4" :max="32" />

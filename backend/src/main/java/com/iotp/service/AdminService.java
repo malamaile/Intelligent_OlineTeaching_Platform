@@ -301,6 +301,13 @@ public interface AdminService {
      */
     String exportReport(Long semester, Long department, String format);
 
+    // ==================== 操作日志 ====================
+
+    /**
+     * 分页查询系统操作日志
+     */
+    IPage<Map<String, Object>> getOperationLogs(String module, String keyword, Integer page, Integer pageSize);
+
     // ==================== 系统监控 ====================
 
     /**

@@ -460,6 +460,23 @@ public class AdminController {
         return Result.ok(data);
     }
 
+    // ==================== 操作日志 ====================
+
+    /**
+     * 分页查询操作日志
+     *
+     * GET /admin/operation-logs?module=用户管理&page=1&pageSize=20
+     */
+    @GetMapping("/operation-logs")
+    public Result<IPage<Map<String, Object>>> getOperationLogs(
+            @RequestParam(required = false) String module,
+            @RequestParam(required = false) String keyword,
+            @RequestParam(defaultValue = "1") Integer page,
+            @RequestParam(defaultValue = "20") Integer pageSize) {
+        IPage<Map<String, Object>> data = adminService.getOperationLogs(module, keyword, page, pageSize);
+        return Result.ok(data);
+    }
+
     // ==================== 系统监控 ====================
 
     /**

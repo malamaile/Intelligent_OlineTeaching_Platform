@@ -1,6 +1,8 @@
 package com.iotp.controller;
 
 import com.iotp.common.Result;
+import com.iotp.entity.SysConfig;
+import com.iotp.mapper.SysConfigMapper;
 import com.iotp.security.UserContext;
 import com.iotp.service.AuthService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -26,6 +28,9 @@ public class AuthController {
     @Autowired
     private AuthService authService;
 
+    @Autowired
+    private SysConfigMapper sysConfigMapper;
+
     /** Authorization 请求头前缀 */
     private static final String BEARER_PREFIX = "Bearer ";
 
@@ -38,8 +43,12 @@ public class AuthController {
      */
     @PostMapping("/register")
     public Result<Map<String, Object>> register(@RequestBody Map<String, String> body) {
-        String account = body.get("account");
         String password = body.get("password");
+        // 密码长度校验（读取系统配置 min/max）
+        Result<String> pwdCheck = validatePasswordLength(password);
+        if (pwdCheck != null) return Result.error(400, pwdCheck.getMessage());
+
+        String account = body.get("account");
         String userName = body.get("userName");
         String role = body.get("role");
         String department = body.get("department");
@@ -103,9 +112,11 @@ public class AuthController {
      */
     @PostMapping("/forgot-password/reset")
     public Result<String> forgotPasswordReset(@RequestBody Map<String, String> body) {
-        String resetToken = body.get("resetToken");
         String newPassword = body.get("newPassword");
+        Result<String> pwdCheck = validatePasswordLength(newPassword);
+        if (pwdCheck != null) return pwdCheck;
 
+        String resetToken = body.get("resetToken");
         authService.forgotPasswordReset(resetToken, newPassword);
         return Result.ok("密码重置成功，请使用新密码登录");
     }
@@ -173,5 +184,30 @@ public class AuthController {
             return authHeader.substring(BEARER_PREFIX.length()).trim();
         }
         return null;
+    }
+
+    /** 根据系统配置校验密码长度，通过返回 null */
+    private Result<String> validatePasswordLength(String password) {
+        if (password == null) return null;
+        int minLen = getConfigInt("password_min_length", 6);
+        int maxLen = getConfigInt("password_max_length", 20);
+        if (password.length() < minLen) {
+            return Result.error(400, "密码长度不能少于 " + minLen + " 位");
+        }
+        if (password.length() > maxLen) {
+            return Result.error(400, "密码长度不能超过 " + maxLen + " 位");
+        }
+        return null;
+    }
+
+    private int getConfigInt(String key, int defaultValue) {
+        try {
+            com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<SysConfig> w =
+                    new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<>();
+            w.eq(SysConfig::getConfigKey, key);
+            SysConfig cfg = sysConfigMapper.selectOne(w);
+            return (cfg != null && cfg.getConfigValue() != null)
+                    ? Integer.parseInt(cfg.getConfigValue()) : defaultValue;
+        } catch (Exception e) { return defaultValue; }
     }
 }
