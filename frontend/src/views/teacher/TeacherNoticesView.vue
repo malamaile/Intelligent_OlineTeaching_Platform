@@ -7,6 +7,8 @@ const loading = ref(false)
 
 const notices = ref([])
 const messages = ref([])
+const noticePagination = reactive({ page: 1, pageSize: 10, total: 0 })
+const messagePagination = reactive({ page: 1, pageSize: 10, total: 0 })
 
 const msgTypeConfig = {
   AUDIT_RESULT: { label: '审批结果', type: 'success' },
@@ -16,15 +18,23 @@ const msgTypeConfig = {
 
 async function fetchNotices() {
   try {
-    const res = await getTeacherNotices({ page: 1, pageSize: 100 })
+    const res = await getTeacherNotices({
+      page: noticePagination.page,
+      pageSize: noticePagination.pageSize,
+    })
     notices.value = res.data.records || res.data
+    noticePagination.total = res.data.total || 0
   } catch {}
 }
 
 async function fetchMessages() {
   try {
-    const res = await getTeacherMessages({ page: 1, pageSize: 20 })
+    const res = await getTeacherMessages({
+      page: messagePagination.page,
+      pageSize: messagePagination.pageSize,
+    })
     messages.value = res.data.records || res.data
+    messagePagination.total = res.data.total || 0
   } catch {}
 }
 
@@ -101,6 +111,15 @@ onMounted(() => {
               </div>
             </div>
           </div>
+          <el-pagination
+            v-model:current-page="noticePagination.page"
+            v-model:page-size="noticePagination.pageSize"
+            :total="noticePagination.total"
+            :page-sizes="[5, 10, 20, 50]"
+            layout="total, sizes, prev, pager, next"
+            style="margin-top: 16px; justify-content: flex-end"
+            @change="fetchNotices"
+          />
         </div>
       </el-col>
 
@@ -122,6 +141,16 @@ onMounted(() => {
               </div>
             </div>
           </div>
+          <el-pagination
+            v-model:current-page="messagePagination.page"
+            v-model:page-size="messagePagination.pageSize"
+            :total="messagePagination.total"
+            :page-sizes="[5, 10, 20, 50]"
+            layout="total, sizes, prev, pager, next"
+            style="margin-top: 16px; justify-content: flex-end"
+            @current-change="fetchMessages"
+            @size-change="fetchMessages"
+          />
         </div>
       </el-col>
     </el-row>

@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
 import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
@@ -36,6 +36,7 @@ const levelPieOption = computed(() => ({
 // 学生列表
 const filterType = ref('ALL')
 const students = ref([])
+const studentPagination = reactive({ page: 1, pageSize: 10, total: 0 })
 
 const filteredStudents = computed(() => {
   if (filterType.value === 'ALL') return students.value
@@ -54,12 +55,18 @@ async function fetchClassOverview() {
 
 async function fetchStudents() {
   try {
-    const res = await getAtRiskStudents({ filterType: filterType.value })
-    students.value = res.data || []
+    const res = await getAtRiskStudents({
+      filterType: filterType.value,
+      page: studentPagination.page,
+      pageSize: studentPagination.pageSize,
+    })
+    students.value = res.data.records || res.data || []
+    studentPagination.total = res.data.total || 0
   } catch {}
 }
 
 watch(filterType, () => {
+  studentPagination.page = 1
   fetchStudents()
 })
 
@@ -121,7 +128,7 @@ onMounted(() => {
               <el-option label="进度滞后" value="SLOW" />
             </el-select>
           </div>
-          <el-table :data="filteredStudents" stripe size="small" max-height="300">
+          <el-table :data="filteredStudents" stripe size="small">
             <el-table-column prop="userName" label="姓名" width="80" />
             <el-table-column label="完成率" width="90">
               <template #default="{ row }">
@@ -150,6 +157,16 @@ onMounted(() => {
               </template>
             </el-table-column>
           </el-table>
+          <el-pagination
+            v-model:current-page="studentPagination.page"
+            v-model:page-size="studentPagination.pageSize"
+            :total="studentPagination.total"
+            :page-sizes="[10, 20, 50]"
+            layout="total, sizes, prev, pager, next"
+            style="margin-top: 16px; justify-content: flex-end"
+            @current-change="fetchStudents"
+            @size-change="fetchStudents"
+          />
         </div>
       </el-col>
     </el-row>

@@ -167,6 +167,18 @@ async function openResult(task) {
 }
 
 // ========== 格式化 ==========
+function formatDate(str) {
+  if (!str) return '-'
+  const d = new Date(str)
+  return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
+function parseGuideFiles(urls) {
+  if (!urls) return []
+  try { return JSON.parse(urls).map(u => ({ name: u.split('/').pop() || '文档', url: u })) }
+  catch { return [{ name: urls.split('/').pop() || '文档', url: urls }] }
+}
+
 function getDeadlineClass(deadline) {
   if (!deadline) return ''
   const d = new Date(deadline)
@@ -211,9 +223,9 @@ onMounted(fetchTasks)
         </el-table-column>
         <el-table-column prop="courseName" label="所属课程" width="140" />
         <el-table-column prop="teacherName" label="教师" width="90" />
-        <el-table-column prop="deadline" label="截止时间" width="160">
+        <el-table-column prop="deadline" label="截止时间" width="150">
           <template #default="{ row }">
-            <span :class="getDeadlineClass(row.deadline)">{{ row.deadline }}</span>
+            <span :class="getDeadlineClass(row.deadline)">{{ formatDate(row.deadline) }}</span>
           </template>
         </el-table-column>
         <el-table-column prop="status" label="状态" width="90">
@@ -266,34 +278,33 @@ onMounted(fetchTasks)
     <!-- ========== 任务详情弹窗 ========== -->
     <el-dialog v-model="detailVisible" title="任务详情" width="680px" destroy-on-close>
       <div v-loading="detailLoading" v-if="detail">
-        <el-descriptions :column="2" border>
+        <el-descriptions :column="2" border size="small">
           <el-descriptions-item label="任务名称" :span="2">{{ detail.title }}</el-descriptions-item>
-          <el-descriptions-item label="类型">{{ detail.taskType === 'EXPERIMENT' ? '实验' : '实训' }}</el-descriptions-item>
+          <el-descriptions-item label="类型">
+            <el-tag :type="detail.taskType === 'EXPERIMENT' ? 'success' : 'warning'" size="small">{{ detail.taskType === 'EXPERIMENT' ? '实验' : '实训' }}</el-tag>
+          </el-descriptions-item>
           <el-descriptions-item label="课程">{{ detail.courseName }}</el-descriptions-item>
           <el-descriptions-item label="授课教师">{{ detail.teacherName }}</el-descriptions-item>
           <el-descriptions-item label="截止时间">
-            <span :class="getDeadlineClass(detail.deadline)">{{ detail.deadline }}</span>
+            <span :class="getDeadlineClass(detail.deadline)">{{ formatDate(detail.deadline) }}</span>
           </el-descriptions-item>
         </el-descriptions>
 
         <div class="detail-section">
           <h4>任务要求</h4>
-          <div class="detail-description" v-html="detail.description || '暂无描述'" />
+          <div class="detail-description">{{ detail.description || '暂无描述' }}</div>
         </div>
 
         <div class="detail-section" v-if="detail.guideFiles?.length">
           <h4>指导文档</h4>
           <div v-for="f in detail.guideFiles" :key="f.fileId" class="guide-file">
-            <el-icon><Document /></el-icon>
-            <span>{{ f.name }}</span>
-            <span class="file-size">{{ (f.fileSize / 1024).toFixed(1) }} KB</span>
-            <el-button type="primary" text size="small" @click="window.open(f.downloadUrl)">下载</el-button>
+            <el-link type="primary" @click="window.open(f.downloadUrl, '_blank')">{{ f.name }}</el-link>
           </div>
         </div>
 
         <div class="detail-section" v-if="detail.mySubmission">
           <h4>我的提交</h4>
-          <el-tag :type="statusConfig[detail.mySubmission]?.type">
+          <el-tag :type="statusConfig[detail.status]?.type" size="small">
             {{ statusConfig[detail.status]?.label }}
           </el-tag>
         </div>
@@ -301,16 +312,20 @@ onMounted(fetchTasks)
     </el-dialog>
 
     <!-- ========== 提交报告弹窗 ========== -->
-    <el-dialog v-model="submitVisible" title="提交报告" width="600px" destroy-on-close>
+    <el-dialog v-model="submitVisible" :title="(detail?.taskType === 'TRAINING' ? '实训' : '实验') + '报告提交'" width="600px" destroy-on-close>
       <div v-if="detail">
-        <p class="submit-task-title">{{ detail.title }}</p>
+        <el-alert :title="detail.title" type="info" :closable="false" show-icon style="margin-bottom:16px">
+          <template v-if="detail.deadline">
+            <span style="font-size:12px;color:#909399">截止时间：{{ formatDate(detail.deadline) }}</span>
+          </template>
+        </el-alert>
         <el-form ref="submitFormRef" :model="submitForm" :rules="submitRules" label-width="100px">
           <el-form-item label="过程描述" prop="content">
             <el-input
               v-model="submitForm.content"
               type="textarea"
               :rows="6"
-              placeholder="请描述实训/实验过程、步骤、遇到的问题及解决方案..."
+              :placeholder="detail?.taskType === 'TRAINING' ? '请描述实训过程、步骤、遇到的问题及解决方案...' : '请描述实验过程、步骤、遇到的问题及解决方案...'"
             />
           </el-form-item>
           <el-form-item label="报告文件">
@@ -324,9 +339,7 @@ onMounted(fetchTasks)
             >
               <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
               <div class="el-upload__text">拖拽或<em>点击上传</em>报告文件</div>
-              <template #tip>
-                <div class="el-upload__tip">支持 PDF / Word 格式，最大 50MB</div>
-              </template>
+              <template #tip><div class="el-upload__tip">支持 PDF / Word 格式，最大 50MB</div></template>
             </el-upload>
           </el-form-item>
           <el-form-item label="附件">
@@ -338,9 +351,7 @@ onMounted(fetchTasks)
               accept=".zip,.rar,.jpg,.png,.pdf,.doc,.docx"
             >
               <el-button type="primary" plain>选择附件</el-button>
-              <template #tip>
-                <div class="el-upload__tip">可上传代码、截图等辅助材料</div>
-              </template>
+              <template #tip><div class="el-upload__tip">可上传代码、截图等辅助材料</div></template>
             </el-upload>
           </el-form-item>
         </el-form>
@@ -361,7 +372,7 @@ onMounted(fetchTasks)
         </div>
         <div class="result-meta">
           <span>批改教师：{{ result.teacherName }}</span>
-          <span>批改时间：{{ result.gradedTime }}</span>
+          <span>批改时间：{{ formatDate(result.gradedTime) }}</span>
         </div>
         <div class="result-comment">
           <h4>教师评语</h4>
@@ -407,7 +418,11 @@ onMounted(fetchTasks)
   color: #c0c4cc;
 }
 
-/* 详情 */
+/* 详情 —— 描述列表标签不换行 */
+:deep(.el-descriptions__label) {
+  white-space: nowrap;
+}
+
 .detail-section {
   margin-top: 20px;
 }
