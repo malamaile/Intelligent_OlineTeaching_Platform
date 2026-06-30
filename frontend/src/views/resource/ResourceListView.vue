@@ -98,6 +98,28 @@ function openPreview(resource) {
   previewVisible.value = true
 }
 
+/**
+ * 根据文件类型判断预览渲染方式
+ * @param {Object} resource - 资源对象（含 type 和 fileType 字段）
+ * @param {String} mode - 'video' | 'image' | 'pdf' | 'office'
+ * @returns {Boolean}
+ */
+function isPreviewType(resource, mode) {
+  const ft = (resource.fileType || '').toLowerCase()
+  const type = (resource.type || '').toUpperCase()
+  const IMG_EXTS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg']
+  const VIDEO_EXTS = ['mp4', 'webm', 'ogg', 'mov', 'avi', 'mkv', 'flv']
+  const OFFICE_EXTS = ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx']
+
+  switch (mode) {
+    case 'video':  return type === 'VIDEO' || VIDEO_EXTS.includes(ft)
+    case 'image':  return IMG_EXTS.includes(ft)
+    case 'pdf':    return ft === 'pdf'
+    case 'office': return OFFICE_EXTS.includes(ft)
+    default:       return false
+  }
+}
+
 function handleSearch() {
   pagination.page = 1
   fetchResources()
@@ -287,17 +309,44 @@ onMounted(fetchResources)
 
         <!-- 预览区 -->
         <div class="preview-content">
-          <template v-if="previewResource.type === 'VIDEO'">
+          <!-- 视频：原生播放器 -->
+          <template v-if="isPreviewType(previewResource, 'video')">
             <video
               v-if="previewResource.previewUrl"
               :src="previewResource.previewUrl"
               controls
-              style="width: 100%; border-radius: 8px"
+              style="width: 100%; border-radius: 8px; max-height: 460px"
             >
               您的浏览器不支持视频播放
             </video>
+            <el-empty v-else description="视频资源暂无预览地址" :image-size="80" />
+          </template>
+          <!-- 图片：直接渲染 -->
+          <template v-else-if="isPreviewType(previewResource, 'image')">
+            <div class="image-preview">
+              <img :src="previewResource.previewUrl" :alt="previewResource.name" />
+            </div>
+          </template>
+          <!-- PDF：iframe嵌入 -->
+          <template v-else-if="isPreviewType(previewResource, 'pdf')">
+            <iframe
+              v-if="previewResource.previewUrl"
+              :src="previewResource.previewUrl"
+              class="preview-iframe"
+              frameborder="0"
+            />
             <el-empty v-else description="暂无预览" :image-size="80" />
           </template>
+          <!-- Office文档：不支持在线预览 -->
+          <template v-else-if="isPreviewType(previewResource, 'office')">
+            <div class="no-preview">
+              <el-icon :size="48"><Document /></el-icon>
+              <p>Office 文档（{{ previewResource.fileType }}）不支持在线预览</p>
+              <p class="hint">请下载后在本地使用 Microsoft Office 或 WPS 打开</p>
+              <el-button type="primary" @click="handleDownload(previewResource)">下载查看</el-button>
+            </div>
+          </template>
+          <!-- 其他有URL的文件：iframe兜底 -->
           <template v-else-if="previewResource.previewUrl">
             <iframe
               :src="previewResource.previewUrl"
@@ -305,6 +354,7 @@ onMounted(fetchResources)
               frameborder="0"
             />
           </template>
+          <!-- 无预览地址 -->
           <template v-else>
             <div class="no-preview">
               <el-icon :size="48"><WarningFilled /></el-icon>
@@ -516,6 +566,32 @@ onMounted(fetchResources)
 .no-preview p {
   margin: 12px 0 16px;
   font-size: 14px;
+}
+
+.no-preview .hint {
+  font-size: 12px;
+  color: #c0c4cc;
+  margin-top: -8px;
+  margin-bottom: 16px;
+}
+
+/* 图片预览 */
+.image-preview {
+  text-align: center;
+  background: #f5f7fa;
+  border-radius: 8px;
+  padding: 16px;
+  min-height: 200px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.image-preview img {
+  max-width: 100%;
+  max-height: 500px;
+  border-radius: 4px;
+  object-fit: contain;
 }
 
 .empty-state {

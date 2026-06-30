@@ -17,20 +17,43 @@ const activeTab = ref('profile')
 const profileFormRef = ref(null)
 const savingProfile = ref(false)
 const profileForm = reactive({
-  nickname: '',
+  realName: '',
   phone: '',
   email: '',
 })
 
 const profileRules = {
+  realName: [
+    { min: 2, max: 20, message: '姓名长度为 2-20 位', trigger: 'blur' },
+  ],
   email: [{ type: 'email', message: '邮箱格式不正确', trigger: 'blur' }],
   phone: [{ pattern: /^1[3-9]\d{9}$/, message: '手机号格式不正确', trigger: 'blur' }],
 }
 
+// 用户状态映射
+const statusMap = { 1: '正常', 0: '冻结' }
+const statusTagType = { 1: 'success', 0: 'danger' }
+
+// 角色中文映射
+const roleMap = { STUDENT: '学生', TEACHER: '教师', ADMIN: '管理员' }
+
+function handleResetProfile() {
+  profileForm.realName = userStore.userInfo?.userName || ''
+  profileForm.phone = userStore.userInfo?.phone || ''
+  profileForm.email = userStore.userInfo?.email || ''
+  profileFormRef.value?.clearValidate()
+}
+
 async function handleSaveProfile() {
+  const valid = await profileFormRef.value.validate().catch(() => false)
+  if (!valid) return
   savingProfile.value = true
   try {
-    await updateProfile({ ...profileForm })
+    await updateProfile({
+      nickname: profileForm.realName,
+      phone: profileForm.phone,
+      email: profileForm.email,
+    })
     await userStore.fetchUserInfo()
     ElMessage.success('信息修改成功')
   } finally {
@@ -175,8 +198,11 @@ function handleMsgPageChange(page) {
 }
 
 // ---- 初始化 ----
-onMounted(() => {
-  profileForm.nickname = userStore.userInfo?.nickname || userStore.userName || ''
+onMounted(async () => {
+  // 先拉取最新的完整用户信息（login 返回的不含 status/email/phone）
+  await userStore.fetchUserInfo()
+
+  profileForm.realName = userStore.userInfo?.userName || ''
   profileForm.phone = userStore.userInfo?.phone || ''
   profileForm.email = userStore.userInfo?.email || ''
 
@@ -232,38 +258,94 @@ function handleTabChange(tab) {
       <el-tabs v-model="activeTab" @tab-change="handleTabChange">
         <!-- 基本信息 -->
         <el-tab-pane label="基本信息" name="profile">
-          <el-form
-            ref="profileFormRef"
-            :model="profileForm"
-            :rules="profileRules"
-            label-width="80px"
-            style="max-width: 480px"
-          >
-            <el-form-item label="头像">
-              <el-upload
-                class="avatar-uploader"
-                :show-file-list="false"
-                :http-request="handleAvatarChange"
-                :before-upload="(f) => { const t = f.type; return t === 'image/jpeg' || t === 'image/png' }"
-                accept="image/jpeg,image/png"
+          <div class="profile-layout">
+            <!-- 头像区 -->
+            <div class="profile-avatar-section">
+              <div class="avatar-block">
+                <el-avatar :size="80" :src="userStore.userInfo?.avatar" />
+                <el-upload
+                  class="avatar-upload-btn"
+                  :show-file-list="false"
+                  :http-request="handleAvatarChange"
+                  :before-upload="(f) => { const t = f.type; return t === 'image/jpeg' || t === 'image/png' }"
+                  accept="image/jpeg,image/png"
+                >
+                  <span class="avatar-tip">点击更换头像</span>
+                </el-upload>
+              </div>
+              <div class="avatar-right">
+                <h3 class="profile-realname">{{ userStore.userInfo?.userName || '-' }}</h3>
+                <el-tag size="small" :type="statusTagType[userStore.userInfo?.status] || 'success'">
+                  {{ statusMap[userStore.userInfo?.status] || '正常' }}
+                </el-tag>
+              </div>
+            </div>
+
+            <!-- 分割线 -->
+            <el-divider class="section-divider" />
+
+            <!-- 账户信息（只读） -->
+            <div class="info-section">
+              <h4 class="section-title">账户信息</h4>
+              <el-row :gutter="24">
+                <el-col :span="12">
+                  <div class="info-item">
+                    <span class="info-label">学号</span>
+                    <span class="info-value">{{ userStore.userInfo?.account || '-' }}</span>
+                  </div>
+                </el-col>
+                <el-col :span="12">
+                  <div class="info-item">
+                    <span class="info-label">最后登录</span>
+                    <span class="info-value info-value-muted">{{ userStore.userInfo?.lastLoginTime || '-' }}</span>
+                  </div>
+                </el-col>
+              </el-row>
+            </div>
+
+            <!-- 分割线 -->
+            <el-divider class="section-divider" />
+
+            <!-- 联系方式（可编辑） -->
+            <div class="info-section">
+              <h4 class="section-title">编辑联系方式</h4>
+              <el-form
+                ref="profileFormRef"
+                :model="profileForm"
+                :rules="profileRules"
+                label-width="80px"
+                class="profile-form"
               >
-                <el-avatar :size="64" :src="userStore.userInfo?.avatar" />
-                <span class="avatar-tip">点击更换头像</span>
-              </el-upload>
-            </el-form-item>
-            <el-form-item label="昵称">
-              <el-input v-model="profileForm.nickname" placeholder="请输入昵称" />
-            </el-form-item>
-            <el-form-item label="手机号" prop="phone">
-              <el-input v-model="profileForm.phone" placeholder="请输入手机号" />
-            </el-form-item>
-            <el-form-item label="邮箱" prop="email">
-              <el-input v-model="profileForm.email" placeholder="请输入邮箱" />
-            </el-form-item>
-            <el-form-item>
-              <el-button type="primary" :loading="savingProfile" @click="handleSaveProfile">保存修改</el-button>
-            </el-form-item>
-          </el-form>
+                <el-row :gutter="24">
+                  <el-col :span="12">
+                    <el-form-item label="姓名" prop="realName">
+                      <el-input v-model="profileForm.realName" placeholder="请输入姓名" />
+                    </el-form-item>
+                  </el-col>
+                  <el-col :span="12">
+                    <el-form-item label="手机号" prop="phone">
+                      <el-input v-model="profileForm.phone" placeholder="请输入手机号" />
+                    </el-form-item>
+                  </el-col>
+                </el-row>
+                <el-row :gutter="24">
+                  <el-col :span="12">
+                    <el-form-item label="邮箱" prop="email">
+                      <el-input v-model="profileForm.email" placeholder="请输入邮箱" />
+                    </el-form-item>
+                  </el-col>
+                </el-row>
+                <el-row>
+                  <el-col :span="24">
+                    <el-form-item>
+                      <el-button type="primary" :loading="savingProfile" @click="handleSaveProfile">保存修改</el-button>
+                      <el-button @click="handleResetProfile">重置</el-button>
+                    </el-form-item>
+                  </el-col>
+                </el-row>
+              </el-form>
+            </div>
+          </div>
         </el-tab-pane>
 
         <!-- 修改密码 -->
@@ -394,16 +476,117 @@ function handleTabChange(tab) {
   color: #909399;
 }
 
-.avatar-uploader {
+/* ========== 基本信息布局 ========== */
+.profile-layout {
+  max-width: 720px;
+}
+
+/* 头像区域 */
+.profile-avatar-section {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 16px 0;
+}
+
+.avatar-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.avatar-upload-btn {
   cursor: pointer;
-  text-align: center;
 }
 
 .avatar-tip {
-  display: block;
-  font-size: 12px;
+  font-size: 13px;
   color: #409eff;
+  cursor: pointer;
+  user-select: none;
+}
+
+.avatar-tip:hover {
+  color: #1f6f4a;
+  text-decoration: underline;
+}
+
+.avatar-right {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.profile-realname {
+  font-size: 22px;
+  font-weight: 600;
+  color: #1b2b22;
+  margin: 0;
+}
+
+/* 分割线 */
+.section-divider {
+  margin: 20px 0;
+}
+
+/* 信息区域 */
+.info-section {
+  margin-bottom: 8px;
+}
+
+.section-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #303133;
+  margin: 0 0 16px 0;
+  padding-left: 10px;
+  border-left: 3px solid #1f6f4a;
+}
+
+/* 信息项 */
+.info-item {
+  display: flex;
+  align-items: center;
+  padding: 12px 16px;
+  margin-bottom: 8px;
+  background: #fafbfc;
+  border-radius: 8px;
+  border: 1px solid #ebeef5;
+  transition: background 0.2s;
+}
+
+.info-item:hover {
+  background: #f5f7fa;
+}
+
+.info-label {
+  font-size: 13px;
+  color: #909399;
+  min-width: 90px;
+  flex-shrink: 0;
+}
+
+.info-value {
+  font-size: 14px;
+  color: #303133;
+  font-weight: 500;
+}
+
+.info-value-muted {
+  font-size: 13px;
+  color: #909399;
+  font-weight: 400;
+}
+
+/* 编辑表单 */
+.profile-form {
   margin-top: 4px;
+}
+
+.profile-form :deep(.el-form-item) {
+  margin-bottom: 18px;
 }
 
 .pagination {
