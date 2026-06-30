@@ -419,15 +419,17 @@ public class TeacherController {
     }
 
     /**
-     * 获取预警学生列表
+     * 获取预警学生列表（分页）
      *
-     * GET /teacher/analytics/at-risk-students?classId=1&filterType=ALL
+     * GET /teacher/analytics/at-risk-students?classId=1&filterType=ALL&page=1&pageSize=10
      */
     @GetMapping("/analytics/at-risk-students")
-    public Result<List<Map<String, Object>>> getAtRiskStudents(
+    public Result<IPage<Map<String, Object>>> getAtRiskStudents(
             @RequestParam(required = false) Long classId,
-            @RequestParam(defaultValue = "ALL") String filterType) {
-        List<Map<String, Object>> data = teacherService.getAtRiskStudents(classId, filterType);
+            @RequestParam(defaultValue = "ALL") String filterType,
+            @RequestParam(defaultValue = "1") Integer page,
+            @RequestParam(defaultValue = "10") Integer pageSize) {
+        IPage<Map<String, Object>> data = teacherService.getAtRiskStudents(classId, filterType, page, pageSize);
         return Result.ok(data);
     }
 
