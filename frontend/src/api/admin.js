@@ -107,6 +107,11 @@ export function getWarnings(params) {
   return http.get('/admin/analytics/warnings', { params })
 }
 
+// ==================== Export ====================
+export function exportReport(params) {
+  return http.get('/admin/analytics/export', { params, responseType: 'blob' })
+}
+
 // ==================== System Monitor ====================
 export function getSystemMonitor() {
   return http.get('/admin/monitor')

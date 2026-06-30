@@ -252,7 +252,7 @@ onBeforeUnmount(() => {
             <el-table-column prop="userName" label="姓名" width="80" />
             <el-table-column label="角色" width="70">
               <template #default="{ row }">
-                <el-tag size="small">{{ row.role === 'STUDENT' ? '学生' : row.role === 'TEACHER' ? '教师' : '管理员' }}</el-tag>
+                <el-tag size="small">{{ row.roleName || (row.role === 'STUDENT' ? '学生' : row.role === 'TEACHER' ? '教师' : '管理员') }}</el-tag>
               </template>
             </el-table-column>
             <el-table-column prop="lastLoginTime" label="最后登录" width="150" />

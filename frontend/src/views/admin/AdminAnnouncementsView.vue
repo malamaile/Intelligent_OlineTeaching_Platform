@@ -2,10 +2,12 @@
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getAnnouncements, createAnnouncement, updateAnnouncement, deleteAnnouncement } from '@/api/admin'
+import { getDepartments } from '@/api/common'
 
 const loading = ref(false)
 
 const announcements = ref([])
+const departmentOptions = ref([])
 const pagination = reactive({ page: 1, pageSize: 10, total: 0 })
 
 const scopeConfig = {
@@ -94,7 +96,17 @@ async function handleDelete(row) {
   await fetchAnnouncements()
 }
 
-onMounted(fetchAnnouncements)
+async function fetchDepartments() {
+  try {
+    const res = await getDepartments()
+    departmentOptions.value = res.data || []
+  } catch {}
+}
+
+onMounted(() => {
+  fetchAnnouncements()
+  fetchDepartments()
+})
 </script>
 
 <template>
@@ -171,9 +183,7 @@ onMounted(fetchAnnouncements)
           <el-col :span="12">
             <el-form-item v-if="announceForm.scope === 'DEPARTMENT_WIDE'" label="选择院系" prop="department">
               <el-select v-model="announceForm.department" style="width:100%" placeholder="选择院系">
-                <el-option label="计算机科学学院" value="计算机科学学院" />
-                <el-option label="数学学院" value="数学学院" />
-                <el-option label="电子信息学院" value="电子信息学院" />
+                <el-option v-for="d in departmentOptions" :key="d.departmentId" :label="d.departmentName" :value="d.departmentName" />
               </el-select>
             </el-form-item>
           </el-col>

@@ -37,7 +37,7 @@ async function fetchCourseAudit() {
 // ========== 任务审核 ==========
 const taskLoading = ref(false)
 const taskAuditList = ref([])
-const taskStats = reactive({ pending: 0, total: 0 })
+const taskStats = reactive({ pending: 0, total: 0, submissionRate: 0 })
 const taskPagination = reactive({ page: 1, pageSize: 10, total: 0 })
 const taskStatusFilter = ref('')
 
@@ -53,6 +53,7 @@ async function fetchTaskAudit() {
     if (statsRes.data) {
       taskStats.pending = statsRes.data.pending || 0
       taskStats.total = statsRes.data.total || 0
+      taskStats.submissionRate = statsRes.data.submissionRate || 0
     }
   } finally {
     taskLoading.value = false
@@ -197,7 +198,7 @@ onMounted(fetchCourseAudit)
         <el-tab-pane label="实训实验计划" name="tasks">
           <div class="stat-cards" style="margin-bottom:16px">
             <div class="stat-card"><div class="stat-label">待审核</div><div class="stat-value warning">{{ taskStats.pending }}</div></div>
-            <div class="stat-card"><div class="stat-label">各院系完成率</div><div class="stat-value primary">85%</div></div>
+            <div class="stat-card"><div class="stat-label">提交批阅率</div><div class="stat-value primary">{{ taskStats.submissionRate }}%</div></div>
           </div>
           <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center">
             <span style="font-size:13px;color:#606266">审核状态：</span>

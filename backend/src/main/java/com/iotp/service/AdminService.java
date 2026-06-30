@@ -299,7 +299,7 @@ public interface AdminService {
      * @param format     导出格式（PDF/EXCEL）
      * @return 导出结果
      */
-    Map<String, Object> exportReport(Long semester, Long department, String format);
+    String exportReport(Long semester, Long department, String format);
 
     // ==================== 系统监控 ====================
 

@@ -1039,6 +1039,11 @@ public class AdminServiceImpl implements AdminService {
                 : BigDecimal.ZERO);
         result.put("submissionTotal", submissionTotal);
         result.put("submissionGraded", submissionGraded);
+        // 提交批阅率
+        result.put("submissionRate", submissionTotal > 0
+                ? BigDecimal.valueOf(submissionGraded).multiply(BigDecimal.valueOf(100))
+                .divide(BigDecimal.valueOf(submissionTotal), 1, RoundingMode.HALF_UP).doubleValue()
+                : 0);
         result.put("byDepartment", byDepartment);
 
         return result;
@@ -1275,34 +1280,47 @@ public class AdminServiceImpl implements AdminService {
             configMap.put(cfg.getConfigKey(), cfg.getConfigValue());
         }
 
-        // 2. 结构化输出
+        // 2. 结构化输出（字段名与前端 settings reactive 完全对应）
         Map<String, Object> settings = new LinkedHashMap<>();
 
-        // 当前学期
+        // 当前学期/学年
         settings.put("currentSemester", configMap.getOrDefault("current_semester", ""));
         settings.put("currentSchoolYear", configMap.getOrDefault("current_school_year", ""));
 
-        // 文件上传
-        settings.put("maxFileUploadSize", configMap.getOrDefault("max_file_upload_size", "104857600"));
-        settings.put("allowedFileTypes", configMap.getOrDefault("allowed_file_types", ""));
+        // 文件上传：前端期望 maxFileUploadSize 为数字(MB)，数据库存的是字节数
+        String maxFileSizeStr = configMap.getOrDefault("max_file_upload_size", "104857600");
+        try {
+            long bytes = Long.parseLong(maxFileSizeStr);
+            settings.put("maxFileUploadSize", (int) (bytes / (1024 * 1024))); // 转为 MB 整数
+        } catch (NumberFormatException e) {
+            settings.put("maxFileUploadSize", 100); // 默认 100 MB
+        }
 
-        // 学业阈值
+        // 允许上传格式：前端期望数组，数据库存逗号分隔字符串
+        String allowedTypes = configMap.getOrDefault("allowed_file_types", "");
+        if (allowedTypes != null && !allowedTypes.isEmpty()) {
+            settings.put("allowedFileTypes", Arrays.asList(allowedTypes.split(",")));
+        } else {
+            settings.put("allowedFileTypes", new ArrayList<>());
+        }
+
+        // 学业阈值：前端期望 { excellentMinScore, goodMinScore }
+        // 兼容旧 key（excellent_threshold / good_threshold）和新 key（excellent_min_score / good_min_score）
         Map<String, Object> thresholds = new LinkedHashMap<>();
-        thresholds.put("warningScore", configMap.getOrDefault("warning_score", "60"));
-        thresholds.put("highRiskScore", configMap.getOrDefault("high_risk_score", "40"));
-        thresholds.put("absenceThreshold", configMap.getOrDefault("absence_threshold", "10"));
+        int excellentMin = parseIntOrDefault(configMap.get("excellent_min_score"),
+                parseIntOrDefault(configMap.get("excellent_threshold"), 85));
+        int goodMin = parseIntOrDefault(configMap.get("good_min_score"),
+                parseIntOrDefault(configMap.get("good_threshold"), 70));
+        thresholds.put("excellentMinScore", excellentMin);
+        thresholds.put("goodMinScore", goodMin);
         settings.put("academicThresholds", thresholds);
 
-        // 密码规则
+        // 密码规则：前端期望 { defaultPassword, minLength, maxLength }
         Map<String, Object> passwordRule = new LinkedHashMap<>();
-        passwordRule.put("minLength", configMap.getOrDefault("password_min_length", "6"));
-        passwordRule.put("requireSpecialChar", configMap.getOrDefault("password_require_special", "false"));
-        passwordRule.put("requireUpperCase", configMap.getOrDefault("password_require_upper", "false"));
-        passwordRule.put("expireDays", configMap.getOrDefault("password_expire_days", "90"));
+        passwordRule.put("defaultPassword", configMap.getOrDefault(CONFIG_DEFAULT_PASSWORD, "123456"));
+        passwordRule.put("minLength", parseIntOrDefault(configMap.get("password_min_length"), 6));
+        passwordRule.put("maxLength", parseIntOrDefault(configMap.get("password_max_length"), 20));
         settings.put("passwordRule", passwordRule);
-
-        // 默认密码
-        settings.put("defaultPassword", configMap.getOrDefault(CONFIG_DEFAULT_PASSWORD, "123456"));
 
         // 全部原始配置（备用）
         settings.put("rawConfigs", configMap);
@@ -1763,6 +1781,41 @@ public class AdminServiceImpl implements AdminService {
             trendData.add(monthData);
         }
 
+        // 8. 本周审核趋势（本周一到周日，每天的提交/通过/驳回数）
+        List<Map<String, Object>> weeklyAuditTrend = new ArrayList<>();
+        LocalDate weekStart = today.with(java.time.DayOfWeek.MONDAY);
+        String[] dayLabels = {"周一", "周二", "周三", "周四", "周五", "周六", "周日"};
+        for (int i = 0; i < 7; i++) {
+            LocalDate day = weekStart.plusDays(i);
+            LocalDateTime dayStart = day.atStartOfDay();
+            LocalDateTime dayEnd = day.atTime(23, 59, 59);
+
+            // 当天提交数（before_status = PENDING 的审核日志）
+            QueryWrapper<SysAuditLog> submittedQw = new QueryWrapper<>();
+            submittedQw.between("create_time", dayStart, dayEnd)
+                    .eq("before_status", "PENDING");
+            long submitted = sysAuditLogMapper.selectCount(submittedQw);
+
+            // 当天通过数
+            QueryWrapper<SysAuditLog> approvedQw = new QueryWrapper<>();
+            approvedQw.between("create_time", dayStart, dayEnd)
+                    .eq("action", AUDIT_APPROVED);
+            long approved = sysAuditLogMapper.selectCount(approvedQw);
+
+            // 当天驳回数
+            QueryWrapper<SysAuditLog> rejectedQw = new QueryWrapper<>();
+            rejectedQw.between("create_time", dayStart, dayEnd)
+                    .eq("action", AUDIT_REJECTED);
+            long rejected = sysAuditLogMapper.selectCount(rejectedQw);
+
+            Map<String, Object> dayData = new LinkedHashMap<>();
+            dayData.put("day", dayLabels[i]);
+            dayData.put("submitted", submitted);
+            dayData.put("approved", approved);
+            dayData.put("rejected", rejected);
+            weeklyAuditTrend.add(dayData);
+        }
+
         // 组装结果
         Map<String, Object> result = new LinkedHashMap<>();
         // 管理员工作台统计字段
@@ -1786,6 +1839,7 @@ public class AdminServiceImpl implements AdminService {
         result.put("byDepartment", byDepartment);
         result.put("deptStats", byDepartment);                       // 前端用别名
         result.put("trendData", trendData);
+        result.put("weeklyAuditTrend", weeklyAuditTrend);
         result.put("semesterId", semId);
         result.put("semesterName", targetSem != null ? targetSem.getSemesterName() : "");
 
@@ -1901,15 +1955,58 @@ public class AdminServiceImpl implements AdminService {
     }
 
     @Override
-    public Map<String, Object> exportReport(Long semester, Long department, String format) {
-        // 占位实现，返回提示信息
-        Map<String, Object> result = new LinkedHashMap<>();
-        result.put("message", "导出功能开发中，敬请期待");
-        result.put("semester", semester);
-        result.put("department", department);
-        result.put("format", format);
-        result.put("status", "NOT_IMPLEMENTED");
-        return result;
+    public String exportReport(Long semester, Long department, String format) {
+        // 1. 获取学情总览数据
+        Map<String, Object> overview = getOverview(semester);
+
+        // 2. 获取预警数据
+        Map<String, Object> warningsData = getWarnings(department, null, null, 1, Integer.MAX_VALUE);
+
+        StringBuilder csv = new StringBuilder();
+        csv.append("﻿"); // UTF-8 BOM for Excel
+
+        // 标题
+        csv.append("全局学情分析报表\n");
+        csv.append("生成时间,").append(LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))).append("\n\n");
+
+        // 总览统计
+        csv.append("=== 全校总览 ===\n");
+        csv.append("指标,数值\n");
+        csv.append("全校学生,").append(overview.getOrDefault("totalStudents", 0)).append("\n");
+        csv.append("开设课程,").append(overview.getOrDefault("totalCourses", 0)).append("\n");
+        csv.append("完成率,").append(overview.getOrDefault("overallCompletionRate", 0)).append("%\n");
+        csv.append("通过率,").append(overview.getOrDefault("overallPassRate", 0)).append("%\n\n");
+
+        // 院系统计
+        csv.append("=== 院系统计 ===\n");
+        csv.append("院系,学生数,课程数,完成率,通过率\n");
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> deptList = (List<Map<String, Object>>) overview.getOrDefault("byDepartment", Collections.emptyList());
+        for (Map<String, Object> d : deptList) {
+            csv.append(d.getOrDefault("departmentName", "")).append(",");
+            csv.append(d.getOrDefault("studentCount", 0)).append(",");
+            csv.append(d.getOrDefault("courseCount", 0)).append(",");
+            csv.append(d.getOrDefault("completionRate", 0)).append("%,");
+            csv.append(d.getOrDefault("passRate", 0)).append("%\n");
+        }
+        csv.append("\n");
+
+        // 预警名单
+        csv.append("=== 预警名单 ===\n");
+        csv.append("姓名,账号,院系,班级,风险等级,均分,任务完成率\n");
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> warningList = (List<Map<String, Object>>) warningsData.getOrDefault("records", Collections.emptyList());
+        for (Map<String, Object> w : warningList) {
+            csv.append(w.getOrDefault("studentName", "")).append(",");
+            csv.append(w.getOrDefault("studentAccount", "")).append(",");
+            csv.append(w.getOrDefault("departmentName", "")).append(",");
+            csv.append(w.getOrDefault("className", "")).append(",");
+            csv.append(w.getOrDefault("riskLevel", "")).append(",");
+            csv.append(w.getOrDefault("avgScore", "")).append(",");
+            csv.append(w.getOrDefault("taskCompletionRate", "")).append("\n");
+        }
+
+        return csv.toString();
     }
 
     // ==================== 系统监控 ====================
@@ -2313,5 +2410,17 @@ public class AdminServiceImpl implements AdminService {
         if (categoryId == null) return "";
         ResourceCategory category = resourceCategoryMapper.selectById(categoryId);
         return category != null ? category.getCategoryName() : "";
+    }
+
+    /**
+     * 安全解析字符串为 int，失败返回默认值
+     */
+    private int parseIntOrDefault(String value, int defaultValue) {
+        if (value == null || value.trim().isEmpty()) return defaultValue;
+        try {
+            return Integer.parseInt(value.trim());
+        } catch (NumberFormatException e) {
+            return defaultValue;
+        }
     }
 }

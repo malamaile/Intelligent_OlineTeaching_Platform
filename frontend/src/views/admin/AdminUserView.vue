@@ -1,7 +1,7 @@
 <script setup>
 import { ref, reactive, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getUsers, createUser, updateUser, updateUserStatus, resetUserPassword, importUsers } from '@/api/admin'
+import { getUsers, getUserDetail, createUser, updateUser, updateUserStatus, resetUserPassword, importUsers } from '@/api/admin'
 import { getDepartments, getClasses } from '@/api/common'
 
 const loading = ref(false)
@@ -180,6 +180,24 @@ async function handleResetPassword(row) {
   }
 }
 
+// 用户详情弹窗
+const detailVisible = ref(false)
+const detailLoading = ref(false)
+const userDetail = ref({})
+
+async function handleViewDetail(row) {
+  detailVisible.value = true
+  detailLoading.value = true
+  try {
+    const res = await getUserDetail(row.id || row.userId)
+    if (res.data) {
+      userDetail.value = res.data
+    }
+  } finally {
+    detailLoading.value = false
+  }
+}
+
 onMounted(() => {
   fetchUsers()
   fetchDepartments()
@@ -229,9 +247,10 @@ onMounted(() => {
           </template>
         </el-table-column>
         <el-table-column prop="lastLoginTime" label="最后登录" width="150" />
-        <el-table-column label="操作" width="280" fixed="right">
+        <el-table-column label="操作" width="340" fixed="right">
           <template #default="{ row }">
             <el-button size="small" @click="openEdit(row)">编辑</el-button>
+            <el-button size="small" type="primary" plain @click="handleViewDetail(row)">详情</el-button>
             <el-button size="small" :type="row.statusType === 'ACTIVE' ? 'warning' : 'success'" @click="handleToggleStatus(row)">
               {{ row.statusType === 'ACTIVE' ? '冻结' : '启用' }}
             </el-button>
@@ -308,6 +327,33 @@ onMounted(() => {
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="saving" @click="handleSave">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 用户详情弹窗 -->
+    <el-dialog v-model="detailVisible" title="用户详情" width="520px" destroy-on-close>
+      <div v-loading="detailLoading">
+        <el-descriptions v-if="userDetail.id" :column="2" border size="small">
+          <el-descriptions-item label="账号">{{ userDetail.account || userDetail.username }}</el-descriptions-item>
+          <el-descriptions-item label="姓名">{{ userDetail.userName || userDetail.realName }}</el-descriptions-item>
+          <el-descriptions-item label="角色">
+            <el-tag size="small">{{ userDetail.role === 'STUDENT' ? '学生' : userDetail.role === 'TEACHER' ? '教师' : '管理员' }}</el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="状态">
+            <el-tag :type="userDetail.statusType === 'ACTIVE' ? 'success' : 'danger'" size="small">{{ userDetail.statusType === 'ACTIVE' ? '正常' : userDetail.statusType === 'FROZEN' ? '已冻结' : '已锁定' }}</el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="院系">{{ userDetail.departmentName || userDetail.department || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="班级">{{ userDetail.className || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="邮箱">{{ userDetail.email || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="手机号">{{ userDetail.phone || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="登录失败次数">{{ userDetail.loginFailCount ?? 0 }}</el-descriptions-item>
+          <el-descriptions-item label="最后登录">{{ userDetail.lastLoginTime || '从未登录' }}</el-descriptions-item>
+          <el-descriptions-item label="创建时间" :span="2">{{ userDetail.createTime }}</el-descriptions-item>
+        </el-descriptions>
+        <div v-else-if="!detailLoading" style="text-align:center;color:#909399;padding:20px">无法加载用户详情</div>
+      </div>
+      <template #footer>
+        <el-button @click="detailVisible = false">关闭</el-button>
       </template>
     </el-dialog>
 

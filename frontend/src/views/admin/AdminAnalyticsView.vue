@@ -1,11 +1,12 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { ElMessage } from 'element-plus'
 import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { BarChart, PieChart, LineChart } from 'echarts/charts'
 import { TitleComponent, TooltipComponent, LegendComponent, GridComponent } from 'echarts/components'
-import { getAdminOverview, getWarnings } from '@/api/admin'
+import { getAdminOverview, getWarnings, exportReport } from '@/api/admin'
 
 use([CanvasRenderer, BarChart, PieChart, LineChart, TitleComponent, TooltipComponent, LegendComponent, GridComponent])
 
@@ -85,8 +86,23 @@ async function fetchData() {
   }
 }
 
-function handleExport() {
-  // TODO: 调用导出 API
+async function handleExport() {
+  try {
+    const res = await exportReport({ format: 'CSV' })
+    // blob 响应：res 是 axios response，res.data 是 Blob
+    const blob = new Blob([res.data], { type: 'text/csv;charset=UTF-8' })
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `学情分析报表_${new Date().toISOString().slice(0, 10)}.csv`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(url)
+    ElMessage.success('报表已导出')
+  } catch {
+    ElMessage.error('导出失败')
+  }
 }
 
 onMounted(fetchData)

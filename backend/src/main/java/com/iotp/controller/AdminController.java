@@ -474,16 +474,25 @@ public class AdminController {
     }
 
     /**
-     * 导出分析报告（功能开发中）
+     * 导出学情分析报表（CSV 格式，Excel 可直接打开）
      *
-     * GET /admin/analytics/export?semester=1&department=1&format=PDF
+     * GET /admin/analytics/export?semester=1&department=1&format=CSV
      */
     @GetMapping("/analytics/export")
-    public Result<Map<String, Object>> exportReport(
+    public void exportReport(
             @RequestParam(required = false) Long semester,
             @RequestParam(required = false) Long department,
-            @RequestParam(defaultValue = "PDF") String format) {
-        Map<String, Object> data = adminService.exportReport(semester, department, format);
-        return Result.ok("导出功能开发中", data);
+            @RequestParam(defaultValue = "CSV") String format,
+            javax.servlet.http.HttpServletResponse response) throws java.io.IOException {
+        String csvContent = adminService.exportReport(semester, department, format);
+
+        String filename = "学情分析报表_" + java.time.LocalDate.now().toString() + ".csv";
+        String encodedFilename = java.net.URLEncoder.encode(filename, "UTF-8")
+                .replace("+", "%20");
+
+        response.setCharacterEncoding("UTF-8");
+        response.setContentType("text/csv; charset=UTF-8");
+        response.setHeader("Content-Disposition", "attachment; filename*=UTF-8''" + encodedFilename);
+        response.getWriter().write(csvContent);
     }
 }

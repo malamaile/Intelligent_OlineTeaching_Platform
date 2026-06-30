@@ -25,18 +25,26 @@ const auditSummary = ref({
   todayApproved: 0, todayRejected: 0, thisWeekTotal: 0,
 })
 
-// 审核趋势图
-const auditTrendOption = ref({
-  tooltip: { trigger: 'axis' },
-  legend: { data: ['提交', '通过', '驳回'], bottom: 0 },
-  grid: { left: 45, right: 15, top: 15, bottom: 60 },
-  xAxis: { type: 'category', data: ['周一', '周二', '周三', '周四', '周五', '周六', '周日'] },
-  yAxis: { type: 'value' },
-  series: [
-    { name: '提交', type: 'line', smooth: true, data: [0, 0, 0, 0, 0, 0, 0], areaStyle: { opacity: 0.1 } },
-    { name: '通过', type: 'line', smooth: true, data: [0, 0, 0, 0, 0, 0, 0], lineStyle: { color: '#67c23a' }, itemStyle: { color: '#67c23a' } },
-    { name: '驳回', type: 'line', smooth: true, data: [0, 0, 0, 0, 0, 0, 0], lineStyle: { color: '#f56c6c' }, itemStyle: { color: '#f56c6c' } },
-  ],
+// 审核趋势图（从后端 weeklyAuditTrend 读取本周每日提交/通过/驳回数据）
+const auditTrendOption = computed(() => {
+  const trend = stats.value.weeklyAuditTrend || []
+  const days = trend.map(d => d.day || '')
+  const submitted = trend.map(d => Number(d.submitted) || 0)
+  const approved = trend.map(d => Number(d.approved) || 0)
+  const rejected = trend.map(d => Number(d.rejected) || 0)
+  const hasData = days.length > 0
+  return {
+    tooltip: { trigger: 'axis' },
+    legend: { data: ['提交', '通过', '驳回'], bottom: 0 },
+    grid: { left: 45, right: 15, top: 15, bottom: 60 },
+    xAxis: { type: 'category', data: hasData ? days : ['周一', '周二', '周三', '周四', '周五', '周六', '周日'] },
+    yAxis: { type: 'value' },
+    series: [
+      { name: '提交', type: 'line', smooth: true, data: hasData ? submitted : [0, 0, 0, 0, 0, 0, 0], areaStyle: { opacity: 0.1 } },
+      { name: '通过', type: 'line', smooth: true, data: hasData ? approved : [0, 0, 0, 0, 0, 0, 0], lineStyle: { color: '#67c23a' }, itemStyle: { color: '#67c23a' } },
+      { name: '驳回', type: 'line', smooth: true, data: hasData ? rejected : [0, 0, 0, 0, 0, 0, 0], lineStyle: { color: '#f56c6c' }, itemStyle: { color: '#f56c6c' } },
+    ],
+  }
 })
 
 // 用户角色分布饼图
