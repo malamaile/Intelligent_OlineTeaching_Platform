@@ -381,7 +381,8 @@ function goToLogin() {
 
 .register-header h2 {
   font-size: 22px;
-  color: #1f6f4a; /* 墨绿 */
+  font-weight: 700;
+  color: #145a30;
   margin-bottom: 4px;
   letter-spacing: 1px;
 }

@@ -229,12 +229,16 @@ async function handleLogin() {
     }
 .login-header h2 {
     font-size: 22px;
-    color: rgba(255, 255, 255, 0.95);
+    font-weight: 700;
+    color: #ffffff;
+    text-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
     margin-bottom: 6px; letter-spacing: 1px;
     }
 .login-header p {
   font-size: 12px;
+  font-weight: 700;
   color: rgba(255, 255, 255, 0.55);
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
   letter-spacing: 0.5px;
   }
 

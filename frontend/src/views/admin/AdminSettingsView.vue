@@ -27,7 +27,27 @@ async function fetchSettings() {
   try {
     const res = await getSettings()
     if (res.data) {
-      Object.assign(settings, res.data)
+      // 后端返回结构与 settings 完全对应，直接合并
+      // maxFileUploadSize: 后端返回 MB 数字
+      // allowedFileTypes: 后端返回数组
+      // academicThresholds: { excellentMinScore, goodMinScore }
+      // passwordRule: { defaultPassword, minLength, maxLength }
+      const d = res.data
+      Object.assign(settings, {
+        currentSemester: d.currentSemester || '',
+        currentSchoolYear: d.currentSchoolYear || '',
+        maxFileUploadSize: Number(d.maxFileUploadSize) || 100,
+        allowedFileTypes: Array.isArray(d.allowedFileTypes) ? d.allowedFileTypes : [],
+        academicThresholds: {
+          excellentMinScore: Number(d.academicThresholds?.excellentMinScore) || 85,
+          goodMinScore: Number(d.academicThresholds?.goodMinScore) || 70,
+        },
+        passwordRule: {
+          defaultPassword: d.passwordRule?.defaultPassword || '123456',
+          minLength: Number(d.passwordRule?.minLength) || 6,
+          maxLength: Number(d.passwordRule?.maxLength) || 20,
+        },
+      })
     }
   } finally {
     loading.value = false
@@ -37,9 +57,10 @@ async function fetchSettings() {
 async function handleSave() {
   saving.value = true
   try {
+    // key 必须和 sys_config 表中的 config_key + 后端 getSettings 读取的 key 完全一致
     await updateSettings({
-      currentSemester: settings.currentSemester,
-      currentSchoolYear: settings.currentSchoolYear,
+      current_semester: settings.currentSemester,
+      current_school_year: settings.currentSchoolYear,
       max_file_upload_size: String(settings.maxFileUploadSize * 1024 * 1024),
       allowed_file_types: settings.allowedFileTypes.join(','),
       excellent_min_score: String(settings.academicThresholds.excellentMinScore),
@@ -49,7 +70,9 @@ async function handleSave() {
       password_max_length: String(settings.passwordRule.maxLength),
     })
     ElMessage.success('系统配置已保存')
-  } catch {} finally { saving.value = false }
+  } catch (e) {
+    ElMessage.error(e?.message || '保存失败，请重试')
+  } finally { saving.value = false }
 }
 
 const fileTypeOptions = [
