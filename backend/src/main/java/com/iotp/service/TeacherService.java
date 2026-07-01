@@ -62,6 +62,14 @@ public interface TeacherService {
     void deleteCourse(Long courseId);
 
     /**
+     * 更新课程章节（审核通过后仍可随时修改，不受审核状态限制）
+     *
+     * @param courseId 课程 ID
+     * @param chapters 章节列表
+     */
+    void updateChapters(Long courseId, java.util.List<Map<String, Object>> chapters);
+
+    /**
      * 获取课程学习进度
      *
      * @param courseId 课程 ID
