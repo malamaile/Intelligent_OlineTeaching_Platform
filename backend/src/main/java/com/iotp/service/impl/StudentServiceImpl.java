@@ -1159,7 +1159,13 @@ public class StudentServiceImpl implements StudentService {
             if (fileName == null || fileName.isEmpty()) {
                 fileName = filePath.getFileName().toString();
             }
-            log.info("学生 {} 下载了资源 {}：{}", UserContext.getUserId(), resourceId, fileName);
+
+            // 更新下载次数
+            int currentCount = resource.getDownloadCount() != null ? resource.getDownloadCount() : 0;
+            resource.setDownloadCount(currentCount + 1);
+            teachingResourceMapper.updateById(resource);
+
+            log.info("学生 {} 下载了资源 {}：{}（下载次数：{}）", UserContext.getUserId(), resourceId, fileName, currentCount + 1);
             return new Object[]{fileName, fileBytes};
         } catch (IOException e) {
             log.error("读取资源文件失败：{}", e.getMessage(), e);

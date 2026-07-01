@@ -279,4 +279,23 @@ onMounted(fetchCourseAudit)
 
 <style scoped>
 .stat-card { border: none; }
+
+/* 审核导航：平分屏幕宽度 + 放大字体 */
+:deep(.el-tabs__nav) {
+  display: flex !important;
+  width: 100%;
+}
+
+:deep(.el-tabs__item) {
+  flex: 1;
+  text-align: center;
+  font-size: 17px;
+  font-weight: 600;
+  height: 50px;
+  line-height: 50px;
+}
+
+:deep(.el-tabs__active-bar) {
+  height: 3px;
+}
 </style>
