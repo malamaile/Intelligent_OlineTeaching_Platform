@@ -135,6 +135,15 @@ export function resubmitResource(resourceId, data) {
   return http.post(`/teacher/resources/${resourceId}/resubmit`, data)
 }
 
+// ==================== Course Chapters ====================
+export function getCourseChapters(courseId) {
+  return http.get(`/teacher/courses/${courseId}/progress`)
+}
+
+export function updateChapters(courseId, data) {
+  return http.put(`/teacher/courses/${courseId}/chapters`, data)
+}
+
 // ==================== Export ====================
 export function exportGrades(courseId) {
   return http.get(`/teacher/courses/${courseId}/grades/export`, { responseType: 'blob' })

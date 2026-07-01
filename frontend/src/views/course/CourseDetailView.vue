@@ -3,6 +3,7 @@ import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { getCourseDetail, reportProgress } from '@/api/student'
 import { ElMessage } from 'element-plus'
+import http from '@/api'
 
 const route = useRoute()
 const router = useRouter()
@@ -104,8 +105,51 @@ function formatDuration(seconds) {
   return `${s}秒`
 }
 
-function downloadMaterial(material) {
-  window.open(`/api/v1/student/courses/${courseId}/materials/${material.materialId}/download`)
+function previewMaterial(mat) {
+  const url = mat.fileUrl
+  if (!url) {
+    ElMessage.warning('该资料暂无预览')
+    return
+  }
+  // PDF、图片类可以在线预览
+  const ft = (mat.fileType || '').toLowerCase()
+  const previewTypes = ['pdf', 'jpg', 'jpeg', 'png', 'gif', 'webp', 'txt', 'md']
+  if (previewTypes.includes(ft)) {
+    window.open(url, '_blank')
+  } else {
+    downloadMaterial(mat)
+  }
+}
+
+async function downloadMaterial(mat) {
+  try {
+    const response = await http.get(`/student/resources/${mat.materialId}/download`, {
+      responseType: 'blob',
+    })
+    const blobUrl = window.URL.createObjectURL(new Blob([response.data]))
+    const link = document.createElement('a')
+    link.href = blobUrl
+    link.setAttribute('download', mat.fileName || mat.name || 'download')
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.URL.revokeObjectURL(blobUrl)
+    ElMessage.success('下载完成')
+  } catch {
+    // 降级：直接打开文件URL
+    if (mat.fileUrl) {
+      window.open(mat.fileUrl, '_blank')
+    } else {
+      ElMessage.error('下载失败')
+    }
+  }
+}
+
+function formatMaterialSize(bytes) {
+  if (!bytes) return ''
+  if (bytes < 1024) return bytes + ' B'
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
+  return (bytes / 1024 / 1024).toFixed(1) + ' MB'
 }
 
 onMounted(fetchCourseDetail)
@@ -205,17 +249,19 @@ onBeforeUnmount(() => {
 
               <!-- 课件资料 -->
               <div v-if="activeChapter.materials && activeChapter.materials.length > 0" class="materials-area">
-                <div class="sub-title">配套资料</div>
+                <div class="sub-title">配套资料（{{ activeChapter.materials.length }} 个文件）</div>
                 <div
                   v-for="mat in activeChapter.materials"
                   :key="mat.materialId"
                   class="material-item"
-                  @click="downloadMaterial(mat)"
                 >
-                  <el-icon><Document /></el-icon>
-                  <span class="material-name">{{ mat.name }}</span>
-                  <span class="material-size">{{ (mat.fileSize / 1024 / 1024).toFixed(1) }} MB</span>
-                  <el-button type="primary" text size="small">下载</el-button>
+                  <el-icon :size="20"><Document /></el-icon>
+                  <div class="material-info">
+                    <span class="material-name">{{ mat.name }}</span>
+                    <span class="material-meta">{{ mat.fileType?.toUpperCase() }} · {{ formatMaterialSize(mat.fileSize) }}</span>
+                  </div>
+                  <el-button type="primary" text size="small" @click="previewMaterial(mat)">预览</el-button>
+                  <el-button type="primary" size="small" @click="downloadMaterial(mat)">下载</el-button>
                 </div>
               </div>
             </template>
@@ -347,12 +393,11 @@ onBeforeUnmount(() => {
 .material-item {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 12px;
+  gap: 10px;
+  padding: 12px 14px;
   border: 1px solid #ebeef5;
   border-radius: 6px;
   margin-bottom: 8px;
-  cursor: pointer;
   transition: background 0.15s;
 }
 
@@ -360,15 +405,26 @@ onBeforeUnmount(() => {
   background: #f5f7fa;
 }
 
-.material-name {
+.material-info {
   flex: 1;
-  font-size: 13px;
-  color: #303133;
+  min-width: 0;
 }
 
-.material-size {
+.material-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: #303133;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: block;
+}
+
+.material-meta {
   font-size: 12px;
   color: #909399;
+  margin-top: 2px;
+  display: block;
 }
 
 .empty-state {
