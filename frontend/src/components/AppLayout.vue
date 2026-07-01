@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { useAppStore } from '@/stores/app'
+import AiFloatingBall from '@/components/AiFloatingBall.vue'
 const router = useRouter()
 const route = useRoute()
 const userStore = useUserStore()
@@ -149,6 +150,9 @@ const cachedViews = ['CourseListView', 'TaskListView', 'ResourceListView', 'Anal
         </router-view>
       </el-main>
     </el-container>
+
+    <!-- AI 学习助手悬浮球 -->
+    <AiFloatingBall />
   </el-container>
 
 </template>
