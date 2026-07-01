@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { ArrowRight } from '@element-plus/icons-vue'
 import { getTeacherDashboard } from '@/api/teacher'
 
 const router = useRouter()
@@ -8,11 +9,15 @@ const router = useRouter()
 const loading = ref(true)
 const dashboard = ref({
   pendingReviews: { experiments: 0, trainings: 0, total: 0 },
+  pendingReviewItems: [],
   pendingAudits: { courses: 0, tasks: 0, resources: 0, total: 0 },
   atRiskStudents: [],
   notifications: [],
   classSummary: { totalStudents: 0, avgCompletionRate: 0, avgScore: 0 },
 })
+
+// 待办事项默认打开「待批改报告」
+const activeTodoTab = ref('reviews')
 
 async function fetchDashboard() {
   loading.value = true
@@ -25,6 +30,11 @@ async function fetchDashboard() {
 }
 
 onMounted(fetchDashboard)
+
+// 跳转到批阅界面
+function goToReview(taskId) {
+  router.push({ path: '/teacher/tasks', query: { taskId } })
+}
 </script>
 
 <template>
@@ -34,7 +44,7 @@ onMounted(fetchDashboard)
       <p class="page-desc">待办工作、通知预警、班级教学动态统一汇总</p>
     </div>
 
-    <!-- ====== L1：KPI 统计卡片（24栅格） ====== -->
+    <!-- ====== L1：KPI 统计卡片 ====== -->
     <el-row :gutter="16" class="kpi-row">
       <el-col :xs="24" :sm="12" :lg="6">
         <div class="card-l1 accent-danger">
@@ -66,35 +76,60 @@ onMounted(fetchDashboard)
       </el-col>
     </el-row>
 
-    <!-- ====== L2 + L3：待办 / 预警 & 通知（24栅格） ====== -->
-    <el-row :gutter="16">
-      <!-- L2：待办事项 -->
-      <el-col :xs="24" :lg="16">
-        <div class="card-l2">
+    <!-- ====== L2：待办 · 预警 · 通知 三栏并排，顶端对齐 ====== -->
+    <el-row :gutter="16" class="dashboard-row">
+      <!-- 待办事项 -->
+      <el-col :xs="24" :lg="8">
+        <div class="card-panel">
           <div class="card-title">待办事项</div>
-          <el-tabs>
-            <el-tab-pane label="待批改报告" :name="0">
-              <div class="todo-actions">
-                <el-button type="primary" size="small" @click="router.push('/teacher/tasks')">实验实训批阅</el-button>
-              </div>
-              <el-empty v-if="!dashboard.pendingReviews.total" description="暂无待批改报告" :image-size="60" />
-              <div v-else class="todo-hint">
-                <el-icon><Warning /></el-icon>
-                您有 <strong>{{ dashboard.pendingReviews.total }}</strong> 份学生报告待批改，请及时处理
+          <el-tabs v-model="activeTodoTab" class="todo-tabs">
+            <el-tab-pane label="待批改报告" name="reviews">
+              <el-empty v-if="!dashboard.pendingReviewItems.length" description="暂无待批改报告" :image-size="60" />
+              <div v-else class="pending-review-list">
+                <div
+                  v-for="item in dashboard.pendingReviewItems"
+                  :key="item.taskId"
+                  class="review-card"
+                  @click="goToReview(item.taskId)"
+                >
+                  <div class="review-card-header">
+                    <el-tag :type="item.taskType === 'EXPERIMENT' ? 'success' : 'warning'" size="small" effect="dark">
+                      {{ item.taskType === 'EXPERIMENT' ? '实验' : '实训' }}
+                    </el-tag>
+                    <span class="review-card-title">{{ item.taskTitle }}</span>
+                  </div>
+                  <div class="review-card-body">
+                    <span class="review-card-course">{{ item.courseName }}</span>
+                    <span class="review-card-class">{{ item.className }}</span>
+                  </div>
+                  <div class="review-card-footer">
+                    <span class="review-card-count">
+                      <el-badge :value="item.pendingCount" type="danger" />
+                      <span class="count-label">份待批阅</span>
+                    </span>
+                    <span class="review-card-student" v-if="item.sampleStudentName">
+                      如：{{ item.sampleStudentName }}{{ item.pendingCount > 1 ? ' 等' : '' }}
+                    </span>
+                    <el-icon class="review-card-arrow"><ArrowRight /></el-icon>
+                  </div>
+                </div>
+                <div class="review-all-action">
+                  <el-button type="primary" size="small" @click="router.push('/teacher/tasks')">查看全部任务</el-button>
+                </div>
               </div>
             </el-tab-pane>
-            <el-tab-pane label="待审核" :name="1">
+            <el-tab-pane label="待审核" name="audits">
               <div v-if="dashboard.pendingAudits.total" class="pending-audit-list">
                 <div v-if="dashboard.pendingAudits.courses" class="audit-row">
-                  <el-tag type="warning">课程计划</el-tag>
+                  <el-tag type="warning" size="small">课程</el-tag>
                   <span>{{ dashboard.pendingAudits.courses }} 条开课申请审核中</span>
                 </div>
                 <div v-if="dashboard.pendingAudits.tasks" class="audit-row">
-                  <el-tag type="warning">实验实训</el-tag>
+                  <el-tag type="warning" size="small">任务</el-tag>
                   <span>{{ dashboard.pendingAudits.tasks }} 条任务计划审核中</span>
                 </div>
                 <div v-if="dashboard.pendingAudits.resources" class="audit-row">
-                  <el-tag type="warning">教学资源</el-tag>
+                  <el-tag type="warning" size="small">资源</el-tag>
                   <span>{{ dashboard.pendingAudits.resources }} 条资源审核中</span>
                 </div>
               </div>
@@ -104,29 +139,32 @@ onMounted(fetchDashboard)
         </div>
       </el-col>
 
-      <!-- L3：预警学生 + 最新通知 -->
+      <!-- 预警学生 -->
       <el-col :xs="24" :lg="8">
-        <div class="card-l3">
+        <div class="card-panel">
           <div class="card-title">
             预警学生
-            <el-button type="danger" text size="small" style="float:right" @click="router.push('/teacher/class-analytics')">查看全部</el-button>
+            <el-button type="danger" text size="small" class="card-title-btn" @click="router.push('/teacher/class-analytics')">查看全部</el-button>
           </div>
-          <div v-if="!dashboard.atRiskStudents.length" class="empty-state">
-            <el-empty description="暂无预警" :image-size="60" />
-          </div>
-          <div v-else class="risk-list">
+          <div class="risk-list">
+            <div v-if="!dashboard.atRiskStudents.length" class="empty-state">
+              <el-empty description="暂无预警" :image-size="60" />
+            </div>
             <div v-for="stu in dashboard.atRiskStudents" :key="stu.userId" class="risk-item">
-              <el-avatar :size="32" icon="User" />
+              <el-avatar :size="32" icon="UserFilled" />
               <div class="risk-body">
                 <div class="risk-name">{{ stu.userName }} <span class="risk-class">{{ stu.className }}</span></div>
-                <div class="risk-reason">{{ stu.reason }}（缺交 {{ stu.missedTasks }} 次）</div>
+                <div class="risk-reason">{{ stu.reason }}</div>
               </div>
               <el-tag type="danger" size="small">预警</el-tag>
             </div>
           </div>
         </div>
+      </el-col>
 
-        <div class="card-l3">
+      <!-- 最新通知 -->
+      <el-col :xs="24" :lg="8">
+        <div class="card-panel">
           <div class="card-title">最新通知</div>
           <div v-if="!dashboard.notifications.length" class="empty-state">
             <el-empty description="暂无通知" :image-size="60" />
@@ -146,19 +184,126 @@ onMounted(fetchDashboard)
 
 <style scoped>
 .page-desc { font-size: 13px; color: #909399; margin-top: 4px; }
-.stat-detail { font-size: 12px; color: #909399; margin-top: 4px; }
-.todo-actions { margin-bottom: 12px; }
-.todo-hint { padding: 16px; background: #fef0f0; border-radius: 8px; color: #f56c6c; font-size: 14px; display: flex; align-items: center; gap: 8px; }
-.pending-audit-list { display: flex; flex-direction: column; gap: 10px; padding: 8px 0; }
-.audit-row { display: flex; align-items: center; gap: 10px; font-size: 14px; color: #606266; }
-.risk-list { display: flex; flex-direction: column; gap: 10px; }
+
+/* ====== L1 KPI 卡片 ====== */
+.kpi-row { margin-bottom: 20px; }
+
+/* ====== L2 三栏面板 ====== */
+.dashboard-row { align-items: stretch; }
+.card-panel {
+  background: #fff;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 2px 12px rgba(0,0,0,.06);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.card-title { font-size: 16px; font-weight: 600; margin-bottom: 12px; }
+.card-title-btn { float: right; }
+
+/* ====== 待办事项 ====== */
+.todo-tabs :deep(.el-tabs__header) { margin-bottom: 8px; }
+
+/* ====== 待批阅列表 ====== */
+.pending-review-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 400px;
+  overflow-y: auto;
+}
+.review-card {
+  padding: 12px 14px;
+  border: 1px solid #ebeef5;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.review-card:hover {
+  border-color: #409eff;
+  background: #ecf5ff;
+  box-shadow: 0 2px 8px rgba(64, 158, 255, 0.12);
+}
+.review-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.review-card-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #303133;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.review-card-body {
+  display: flex;
+  gap: 12px;
+  font-size: 12px;
+  color: #909399;
+  margin-bottom: 6px;
+}
+.review-card-course { color: #606266; }
+.review-card-class { color: #909399; }
+.review-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  color: #909399;
+}
+.review-card-count {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.count-label {
+  color: #606266;
+  font-size: 12px;
+}
+.review-card-student {
+  flex: 1;
+  margin-left: 8px;
+  color: #c0c4cc;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.review-card-arrow {
+  color: #c0c4cc;
+  font-size: 14px;
+  transition: color 0.2s;
+}
+.review-card:hover .review-card-arrow {
+  color: #409eff;
+}
+.review-all-action {
+  text-align: center;
+  padding-top: 4px;
+}
+
+.pending-audit-list { display: flex; flex-direction: column; gap: 10px; padding: 4px 0; }
+.audit-row { display: flex; align-items: center; gap: 10px; font-size: 13px; color: #606266; }
+
+/* ====== 预警学生 ====== */
+.risk-list { flex: 1; overflow-y: auto; }
 .risk-item { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid #f5f5f5; }
-.risk-body { flex: 1; }
+.risk-item:last-child { border-bottom: none; }
+.risk-body { flex: 1; min-width: 0; }
 .risk-name { font-size: 14px; font-weight: 500; }
-.risk-class { font-size: 12px; color: #909399; font-weight: normal; }
-.risk-reason { font-size: 12px; color: #f56c6c; }
+.risk-class { font-size: 12px; color: #909399; font-weight: normal; margin-left: 4px; }
+.risk-reason { font-size: 12px; color: #f56c6c; margin-top: 2px; }
+
+/* ====== 最新通知 ====== */
 .notify-row { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid #f5f5f5; font-size: 13px; }
-.notify-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.notify-row:last-child { border-bottom: none; }
+.notify-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .notify-time { font-size: 12px; color: #c0c4cc; white-space: nowrap; }
+
+/* ====== 通用 ====== */
 .empty-state { padding: 10px 0; }
+.stat-detail { font-size: 12px; color: #909399; margin-top: 4px; }
 </style>
