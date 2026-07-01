@@ -143,6 +143,43 @@ public class TeacherServiceImpl implements TeacherService {
         pendingReviews.put("trainings", trainings);
         pendingReviews.put("total", experiments + trainings);
 
+        // 1.2 构建待批阅详情列表（用于工作台直接展示）
+        List<Map<String, Object>> pendingReviewItems = new ArrayList<>();
+        if (!taskIds.isEmpty()) {
+            QueryWrapper<StudentExperimentSubmission> detailSubQw = new QueryWrapper<>();
+            detailSubQw.in("task_id", taskIds).eq("status", SUBMIT_SUBMITTED).orderByAsc("submit_time");
+            List<StudentExperimentSubmission> detailSubs = submissionMapper.selectList(detailSubQw);
+            Map<Long, List<StudentExperimentSubmission>> groupedByTask = new LinkedHashMap<>();
+            for (StudentExperimentSubmission sub : detailSubs) {
+                groupedByTask.computeIfAbsent(sub.getTaskId(), k -> new ArrayList<>()).add(sub);
+            }
+            for (Map.Entry<Long, List<StudentExperimentSubmission>> entry : groupedByTask.entrySet()) {
+                Long tid = entry.getKey();
+                List<StudentExperimentSubmission> subs = entry.getValue();
+                ExperimentTask task = experimentTaskMapper.selectById(tid);
+                if (task == null) continue;
+                ExperimentProject project = experimentProjectMapper.selectById(task.getProjectId());
+                String taskTitle = project != null ? project.getProjectName() : "";
+                String taskType = project != null ? project.getProjectType() : "EXPERIMENT";
+                String courseName = "";
+                if (task.getCourseId() != null) { Course c = courseMapper.selectById(task.getCourseId()); courseName = c != null ? c.getCourseName() : ""; }
+                String className = getClassName(task.getClassId());
+                StudentExperimentSubmission firstSub = subs.get(0);
+                SysUser firstStudent = sysUserMapper.selectById(firstSub.getStudentId());
+                String studentName = firstStudent != null ? (firstStudent.getRealName() != null ? firstStudent.getRealName() : firstStudent.getUsername()) : "";
+                Map<String, Object> item = new LinkedHashMap<>();
+                item.put("taskId", tid);
+                item.put("taskTitle", taskTitle);
+                item.put("taskType", taskType);
+                item.put("courseName", courseName);
+                item.put("className", className);
+                item.put("pendingCount", subs.size());
+                item.put("sampleStudentName", studentName);
+                item.put("sampleSubmissionId", firstSub.getId());
+                pendingReviewItems.add(item);
+            }
+        }
+
         // 2. 待审核统计：课程 / 实验任务 / 教学资源
         Map<String, Object> pendingAudits = new LinkedHashMap<>();
 
@@ -291,6 +328,7 @@ public class TeacherServiceImpl implements TeacherService {
         // 组装结果
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("pendingReviews", pendingReviews);
+        result.put("pendingReviewItems", pendingReviewItems);
         result.put("pendingAudits", pendingAudits);
         result.put("atRiskStudents", atRiskStudents);
         result.put("notifications", notifications);
@@ -1648,13 +1686,47 @@ public class TeacherServiceImpl implements TeacherService {
         }
 
         Map<String, Object> result = new LinkedHashMap<>();
+        // 5. 统计实验/实训完成率
+        int totalExperimentTasks = 0, completedExperimentTasks = 0;
+        int totalTrainingTasks = 0, completedTrainingTasks = 0;
+
+        QueryWrapper<ExperimentTask> taskQw2 = new QueryWrapper<>();
+        taskQw2.eq("teacher_id", teacherId)
+                .eq("audit_status", AUDIT_APPROVED);
+        if (classId != null) taskQw2.eq("class_id", classId);
+        else if (!classIdSet.isEmpty()) taskQw2.in("class_id", classIdSet);
+        List<ExperimentTask> classTasks = experimentTaskMapper.selectList(taskQw2);
+
+        for (ExperimentTask task : classTasks) {
+            ExperimentProject project = experimentProjectMapper.selectById(task.getProjectId());
+            boolean isTraining = project != null && "TRAINING".equals(project.getProjectType());
+
+            if (isTraining) totalTrainingTasks++; else totalExperimentTasks++;
+
+            // 统计已完成的学生数
+            QueryWrapper<StudentExperimentSubmission> subQw2 = new QueryWrapper<>();
+            subQw2.eq("task_id", task.getId()).eq("status", SUBMIT_GRADED);
+            long graded = submissionMapper.selectCount(subQw2);
+            if (isTraining) completedTrainingTasks += (graded > 0 ? 1 : 0);
+            else completedExperimentTasks += (graded > 0 ? 1 : 0);
+        }
+
+        BigDecimal avgExperimentRate = totalExperimentTasks > 0
+                ? BigDecimal.valueOf(completedExperimentTasks).multiply(BigDecimal.valueOf(100))
+                    .divide(BigDecimal.valueOf(totalExperimentTasks), 2, RoundingMode.HALF_UP)
+                : BigDecimal.ZERO;
+        BigDecimal avgTrainingRate = totalTrainingTasks > 0
+                ? BigDecimal.valueOf(completedTrainingTasks).multiply(BigDecimal.valueOf(100))
+                    .divide(BigDecimal.valueOf(totalTrainingTasks), 2, RoundingMode.HALF_UP)
+                : BigDecimal.ZERO;
+
         result.put("studentCount", totalStudents);
         result.put("className", className);
         result.put("avgCompletionRate", avgCompletionRate);
         result.put("avgScore", avgScore);
-        result.put("avgCorrectRate", 0);       // 暂未跟踪，默认 0
-        result.put("avgExperimentRate", 0);    // 暂未跟踪，默认 0
-        result.put("avgTrainingRate", 0);      // 暂未跟踪，默认 0
+        result.put("avgCorrectRate", 0);       // 习题正确率需对接题库系统，暂返回 0
+        result.put("avgExperimentRate", avgExperimentRate);
+        result.put("avgTrainingRate", avgTrainingRate);
         result.put("levelDistribution", levelDistribution);
         result.put("courseRanking", courseRanking);
 

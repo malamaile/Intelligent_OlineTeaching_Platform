@@ -119,10 +119,15 @@ public class CommonController {
      * 6.4 获取学期列表
      */
     @GetMapping("/semesters")
-    public Result<List<String>> getSemesters() {
+    public Result<List<Map<String, Object>>> getSemesters() {
         List<SysSemester> semesters = semesterMapper.selectList(null);
-        List<String> list = semesters.stream()
-                .map(SysSemester::getSemesterName)
+        List<Map<String, Object>> list = semesters.stream()
+                .map(s -> {
+                    Map<String, Object> map = new HashMap<>();
+                    map.put("semesterId", s.getId());
+                    map.put("semesterName", s.getSemesterName());
+                    return map;
+                })
                 .collect(Collectors.toList());
         return Result.ok(list);
     }
