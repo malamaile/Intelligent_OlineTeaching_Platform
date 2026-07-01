@@ -165,6 +165,50 @@ public class AdminController {
         return Result.ok("密码重置成功");
     }
 
+    /**
+     * 删除用户（软删除）
+     *
+     * DELETE /admin/users/{userId}
+     */
+    @DeleteMapping("/users/{userId}")
+    public Result<String> deleteUser(@PathVariable Long userId) {
+        adminService.deleteUser(userId);
+        return Result.ok("用户已删除");
+    }
+
+    /**
+     * 新建班级
+     *
+     * POST /admin/classes
+     * Body: { "className": "软件工程2201班", "classCode": "SE2201", "departmentId": 1, "grade": "2022" }
+     */
+    @PostMapping("/classes")
+    public Result<Map<String, Object>> createClass(@RequestBody Map<String, Object> body) {
+        String className = (String) body.get("className");
+        String classCode = (String) body.get("classCode");
+        String grade = (String) body.get("grade");
+        Long departmentId = body.get("departmentId") != null
+                ? Long.valueOf(body.get("departmentId").toString()) : null;
+
+        Map<String, Object> data = adminService.createClass(className, classCode, departmentId, grade);
+        return Result.ok("班级创建成功", data);
+    }
+
+    /**
+     * 新建学院
+     *
+     * POST /admin/departments
+     * Body: { "deptName": "计算机学院", "deptCode": "CS" }
+     */
+    @PostMapping("/departments")
+    public Result<Map<String, Object>> createDepartment(@RequestBody Map<String, Object> body) {
+        String deptName = (String) body.get("deptName");
+        String deptCode = (String) body.get("deptCode");
+
+        Map<String, Object> data = adminService.createDepartment(deptName, deptCode);
+        return Result.ok("学院创建成功", data);
+    }
+
     // ==================== 课程审核 ====================
 
     /**
@@ -511,5 +555,17 @@ public class AdminController {
         response.setContentType("text/csv; charset=UTF-8");
         response.setHeader("Content-Disposition", "attachment; filename*=UTF-8''" + encodedFilename);
         response.getWriter().write(csvContent);
+    }
+
+    /**
+     * 获取按课程聚合的学情统计
+     *
+     * GET /admin/analytics/courses?semester=1
+     */
+    @GetMapping("/analytics/courses")
+    public Result<Map<String, Object>> getCourseAnalytics(
+            @RequestParam(required = false) Long semester) {
+        Map<String, Object> data = adminService.getCourseAnalytics(semester);
+        return Result.ok(data);
     }
 }

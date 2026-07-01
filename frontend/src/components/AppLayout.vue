@@ -48,6 +48,7 @@ const activeMenu = computed(() => {
   // 课程详情高亮课程列表
   if (p.startsWith('/courses/')) return '/courses'
   // 管理员子页面高亮对应菜单
+  if (p === '/admin/analytics/courses') return '/admin/analytics'
   if (p.startsWith('/admin/')) return p
   if (p === '/monitor') return '/monitor'
   // 教师子页面高亮对应菜单

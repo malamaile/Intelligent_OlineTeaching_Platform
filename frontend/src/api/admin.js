@@ -29,6 +29,18 @@ export function resetUserPassword(userId, data) {
   return http.put(`/admin/users/${userId}/reset-password`, data)
 }
 
+export function deleteUser(userId) {
+  return http.delete(`/admin/users/${userId}`)
+}
+
+export function createClass(data) {
+  return http.post('/admin/classes', data)
+}
+
+export function createDepartment(data) {
+  return http.post('/admin/departments', data)
+}
+
 // ==================== Course Audit ====================
 export function getAuditCourses(params) {
   return http.get('/admin/audit/courses', { params })
@@ -105,6 +117,10 @@ export function getAdminOverview(params) {
 
 export function getWarnings(params) {
   return http.get('/admin/analytics/warnings', { params })
+}
+
+export function getCourseAnalytics(params) {
+  return http.get('/admin/analytics/courses', { params })
 }
 
 // ==================== Export ====================

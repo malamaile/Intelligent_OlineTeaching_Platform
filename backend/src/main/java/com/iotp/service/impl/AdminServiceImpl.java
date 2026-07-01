@@ -486,6 +486,88 @@ public class AdminServiceImpl implements AdminService {
         log.info("管理员 {} 重置了用户 {} 的密码", UserContext.getUserId(), userId);
     }
 
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void deleteUser(Long userId) {
+        Long adminId = UserContext.getUserId();
+
+        // 不允许删除自己
+        if (adminId.equals(userId)) {
+            throw new BusinessException(400, "不能删除自己的账号");
+        }
+
+        SysUser user = sysUserMapper.selectById(userId);
+        if (user == null) {
+            throw new BusinessException(404, "用户不存在");
+        }
+
+        // 物理删除（绕过 @TableLogic），释放 username 供重新导入
+        sysUserMapper.physicalDelete(userId);
+
+        log.info("管理员 {} 物理删除了用户 {}（账号：{}）", adminId, user.getRealName(), user.getUsername());
+    }
+
+    @Override
+    public Map<String, Object> createClass(String className, String classCode,
+                                           Long departmentId, String grade) {
+        if (className == null || className.trim().isEmpty()) {
+            throw new BusinessException(400, "班级名称不能为空");
+        }
+        if (departmentId == null) {
+            throw new BusinessException(400, "请选择所属学院");
+        }
+
+        // 检查班级名是否重复
+        QueryWrapper<SysClass> existQw = new QueryWrapper<>();
+        existQw.eq("class_name", className.trim());
+        if (sysClassMapper.selectCount(existQw) > 0) {
+            throw new BusinessException(400, "班级名称已存在：" + className);
+        }
+
+        SysClass newClass = new SysClass();
+        newClass.setClassName(className.trim());
+        newClass.setClassCode(classCode != null ? classCode.trim() : className.trim());
+        newClass.setDepartmentId(departmentId);
+        newClass.setGrade(grade != null ? grade.trim() : "");
+        newClass.setIsDeleted(0);
+        sysClassMapper.insert(newClass);
+
+        log.info("管理员 {} 创建了班级：{}（ID：{}，院系ID：{}）",
+                UserContext.getUserId(), className, newClass.getId(), departmentId);
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("classId", newClass.getId());
+        result.put("className", className.trim());
+        result.put("departmentId", departmentId);
+        return result;
+    }
+
+    @Override
+    public Map<String, Object> createDepartment(String deptName, String deptCode) {
+        if (deptName == null || deptName.trim().isEmpty()) {
+            throw new BusinessException(400, "学院名称不能为空");
+        }
+
+        // 检查名称是否重复
+        QueryWrapper<SysDepartment> existQw = new QueryWrapper<>();
+        existQw.eq("dept_name", deptName.trim());
+        if (sysDepartmentMapper.selectCount(existQw) > 0) {
+            throw new BusinessException(400, "学院名称已存在：" + deptName);
+        }
+
+        SysDepartment dept = new SysDepartment();
+        dept.setDeptName(deptName.trim());
+        dept.setDeptCode(deptCode != null ? deptCode.trim() : deptName.trim());
+        sysDepartmentMapper.insert(dept);
+
+        log.info("管理员 {} 创建了学院：{}（ID：{}）", UserContext.getUserId(), deptName, dept.getId());
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("departmentId", dept.getId());
+        result.put("departmentName", deptName.trim());
+        return result;
+    }
+
     // ==================== 课程审核 ====================
 
     @Override
@@ -1837,6 +1919,9 @@ public class AdminServiceImpl implements AdminService {
         result.put("totalCourses", totalCourses);
         result.put("semesterCourses", semesterCourses);
         result.put("totalResources", totalResources);
+        // 学院与班级统计
+        result.put("deptCount", departments.size());
+        result.put("classCount", sysClassMapper.selectCount(null));
         // 学情分析字段
         result.put("overallCompletionRate", overallCompletionRate.doubleValue());
         result.put("overallPassRate", overallPassRate.doubleValue());
@@ -2012,6 +2097,165 @@ public class AdminServiceImpl implements AdminService {
         }
 
         return csv.toString();
+    }
+
+    // ==================== 按课程统计学情 ====================
+
+    @Override
+    public Map<String, Object> getCourseAnalytics(Long semester) {
+        // 1. 确定学期
+        Long semId = semester;
+        if (semId == null) {
+            QueryWrapper<SysSemester> semQw = new QueryWrapper<>();
+            semQw.eq("is_current", 1);
+            SysSemester currentSem = sysSemesterMapper.selectOne(semQw);
+            if (currentSem != null) {
+                semId = currentSem.getId();
+            }
+        }
+
+        // 2. 查询该学期所有已通过的 CoursePlan
+        QueryWrapper<CoursePlan> planQw = new QueryWrapper<>();
+        planQw.eq("semester_id", semId)
+                .eq("audit_status", AUDIT_APPROVED);
+        List<CoursePlan> plans = coursePlanMapper.selectList(planQw);
+
+        if (plans.isEmpty()) {
+            Map<String, Object> empty = new LinkedHashMap<>();
+            empty.put("courses", Collections.emptyList());
+            empty.put("totalStudents", 0);
+            empty.put("totalGraded", 0);
+            empty.put("overallCompletionRate", 0);
+            empty.put("overallPassRate", 0);
+            return empty;
+        }
+
+        // 3. 为每个 CoursePlan 计算统计
+        List<Map<String, Object>> planStatsList = new ArrayList<>();
+        long allEnrolled = 0;
+        long allCompleted = 0;
+        long allGraded = 0;
+        long allPassed = 0;
+
+        for (CoursePlan plan : plans) {
+            // 选课人数
+            QueryWrapper<StudentCourseEnrollment> enrollQw = new QueryWrapper<>();
+            enrollQw.eq("course_plan_id", plan.getId());
+            long enrolled = enrollmentMapper.selectCount(enrollQw);
+
+            // 完成人数
+            QueryWrapper<StudentCourseEnrollment> completedQw = new QueryWrapper<>();
+            completedQw.eq("course_plan_id", plan.getId())
+                    .eq("is_completed", 1);
+            long completed = enrollmentMapper.selectCount(completedQw);
+
+            // 已发布成绩数
+            QueryWrapper<StudentGrade> gradeQw = new QueryWrapper<>();
+            gradeQw.eq("course_plan_id", plan.getId())
+                    .eq("is_published", 1);
+            List<StudentGrade> grades = studentGradeMapper.selectList(gradeQw);
+            long gradedCount = grades.size();
+
+            // 通过人数（finalGrade >= 60）
+            long passedCount = grades.stream()
+                    .filter(g -> g.getFinalGrade() != null
+                            && g.getFinalGrade().compareTo(BigDecimal.valueOf(60)) >= 0)
+                    .count();
+
+            BigDecimal completionRate = enrolled > 0
+                    ? BigDecimal.valueOf(completed).multiply(BigDecimal.valueOf(100))
+                    .divide(BigDecimal.valueOf(enrolled), 2, RoundingMode.HALF_UP)
+                    : BigDecimal.ZERO;
+
+            BigDecimal passRate = gradedCount > 0
+                    ? BigDecimal.valueOf(passedCount).multiply(BigDecimal.valueOf(100))
+                    .divide(BigDecimal.valueOf(gradedCount), 2, RoundingMode.HALF_UP)
+                    : BigDecimal.ZERO;
+
+            allEnrolled += enrolled;
+            allCompleted += completed;
+            allGraded += gradedCount;
+            allPassed += passedCount;
+
+            Course course = courseMapper.selectById(plan.getCourseId());
+
+            Map<String, Object> ps = new LinkedHashMap<>();
+            ps.put("planId", plan.getId());
+            ps.put("courseId", plan.getCourseId());
+            ps.put("courseName", course != null ? course.getCourseName() : "");
+            ps.put("courseCode", course != null ? course.getCourseCode() : "");
+            ps.put("className", getClassName(plan.getClassId()));
+            ps.put("teacherName", getUserRealName(plan.getTeacherId()));
+            ps.put("studentCount", enrolled);
+            ps.put("completedCount", completed);
+            ps.put("completionRate", completionRate.doubleValue());
+            ps.put("gradedCount", gradedCount);
+            ps.put("passedCount", passedCount);
+            ps.put("passRate", passRate.doubleValue());
+            planStatsList.add(ps);
+        }
+
+        // 4. 按 courseId 聚合（同一课程多个班级合并）
+        Map<Long, List<Map<String, Object>>> groupedByCourse = planStatsList.stream()
+                .collect(Collectors.groupingBy(p -> (Long) p.get("courseId")));
+
+        List<Map<String, Object>> courseList = new ArrayList<>();
+        for (Map.Entry<Long, List<Map<String, Object>>> entry : groupedByCourse.entrySet()) {
+            List<Map<String, Object>> plansForCourse = entry.getValue();
+
+            // 汇总
+            long cStudents = plansForCourse.stream().mapToLong(p -> (long) p.get("studentCount")).sum();
+            long cCompleted = plansForCourse.stream().mapToLong(p -> (long) p.get("completedCount")).sum();
+            long cGraded = plansForCourse.stream().mapToLong(p -> (long) p.get("gradedCount")).sum();
+            long cPassed = plansForCourse.stream().mapToLong(p -> (long) p.get("passedCount")).sum();
+
+            BigDecimal cCompletion = cStudents > 0
+                    ? BigDecimal.valueOf(cCompleted).multiply(BigDecimal.valueOf(100))
+                    .divide(BigDecimal.valueOf(cStudents), 2, RoundingMode.HALF_UP)
+                    : BigDecimal.ZERO;
+            BigDecimal cPass = cGraded > 0
+                    ? BigDecimal.valueOf(cPassed).multiply(BigDecimal.valueOf(100))
+                    .divide(BigDecimal.valueOf(cGraded), 2, RoundingMode.HALF_UP)
+                    : BigDecimal.ZERO;
+
+            Map<String, Object> first = plansForCourse.get(0);
+            Map<String, Object> courseItem = new LinkedHashMap<>();
+            courseItem.put("courseId", first.get("courseId"));
+            courseItem.put("courseName", first.get("courseName"));
+            courseItem.put("courseCode", first.get("courseCode"));
+            courseItem.put("planCount", plansForCourse.size());
+            courseItem.put("studentCount", cStudents);
+            courseItem.put("completedCount", cCompleted);
+            courseItem.put("completionRate", cCompletion.doubleValue());
+            courseItem.put("gradedCount", cGraded);
+            courseItem.put("passedCount", cPassed);
+            courseItem.put("passRate", cPass.doubleValue());
+            // 附下级明细
+            courseItem.put("plans", plansForCourse);
+            courseList.add(courseItem);
+        }
+
+        // 按完成率降序
+        courseList.sort((a, b) -> Double.compare(
+                (double) b.get("completionRate"), (double) a.get("completionRate")));
+
+        BigDecimal overallCompletion = allEnrolled > 0
+                ? BigDecimal.valueOf(allCompleted).multiply(BigDecimal.valueOf(100))
+                .divide(BigDecimal.valueOf(allEnrolled), 2, RoundingMode.HALF_UP)
+                : BigDecimal.ZERO;
+        BigDecimal overallPass = allGraded > 0
+                ? BigDecimal.valueOf(allPassed).multiply(BigDecimal.valueOf(100))
+                .divide(BigDecimal.valueOf(allGraded), 2, RoundingMode.HALF_UP)
+                : BigDecimal.ZERO;
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("courses", courseList);
+        result.put("totalStudents", allEnrolled);
+        result.put("totalGraded", allGraded);
+        result.put("overallCompletionRate", overallCompletion.doubleValue());
+        result.put("overallPassRate", overallPass.doubleValue());
+
+        return result;
     }
 
     // ==================== 操作日志 ====================
@@ -2303,23 +2547,34 @@ public class AdminServiceImpl implements AdminService {
             return rows;
         }
 
+        // 扫描所有行取最大列数（表头 + 数据行），避免 getLastCellNum() 漏掉末尾列
         int cellCount = headerRow.getLastCellNum();
+        for (int i = 1; i <= sheet.getLastRowNum(); i++) {
+            Row dataRow = sheet.getRow(i);
+            if (dataRow != null) {
+                int c = dataRow.getLastCellNum();
+                if (c > cellCount) cellCount = c;
+            }
+        }
+
+        // 用扫描出的最大列数读取表头（空白单元格标题为 ""）
         List<String> headers = new ArrayList<>();
         for (int i = 0; i < cellCount; i++) {
             Cell cell = headerRow.getCell(i);
             headers.add(cell != null ? getCellStringValue(cell) : "");
         }
 
-        // 读取数据行
+        // 读取数据行（如果表头为空，自动生成列号作为 key，防止数据丢失）
         for (int i = 1; i <= sheet.getLastRowNum(); i++) {
             Row row = sheet.getRow(i);
-            if (row == null) {
-                continue;
-            }
+            if (row == null) continue;
             Map<String, String> rowData = new LinkedHashMap<>();
-            for (int j = 0; j < headers.size(); j++) {
+            for (int j = 0; j < cellCount; j++) {
+                String key = headers.get(j);
+                // 表头为空时用列号兜底
+                if (key.isEmpty()) key = "col" + (j + 1);
                 Cell cell = row.getCell(j);
-                rowData.put(headers.get(j), cell != null ? getCellStringValue(cell) : "");
+                rowData.put(key, cell != null ? getCellStringValue(cell) : "");
             }
             rows.add(rowData);
         }

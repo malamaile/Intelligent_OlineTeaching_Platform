@@ -98,6 +98,33 @@ public interface AdminService {
      */
     void resetUserPassword(Long userId, String newPassword);
 
+    /**
+     * 删除用户（软删除，标记 is_deleted = 1）
+     *
+     * @param userId 用户ID
+     */
+    void deleteUser(Long userId);
+
+    /**
+     * 新建班级
+     *
+     * @param className    班级名称
+     * @param classCode    班级编码
+     * @param departmentId 所属院系ID
+     * @param grade        年级
+     * @return 新建班级信息
+     */
+    Map<String, Object> createClass(String className, String classCode, Long departmentId, String grade);
+
+    /**
+     * 新建学院
+     *
+     * @param deptName 学院名称（必填）
+     * @param deptCode 学院编码
+     * @return 新建学院信息
+     */
+    Map<String, Object> createDepartment(String deptName, String deptCode);
+
     // ==================== 课程审核 ====================
 
     /**
@@ -300,6 +327,16 @@ public interface AdminService {
      * @return 导出结果
      */
     String exportReport(Long semester, Long department, String format);
+
+    /**
+     * 获取按课程聚合的学情统计数据
+     *
+     * @param semester 学期ID（为空则使用当前学期）
+     * @return 按课程统计列表：courses[{ courseId, courseName, courseCode, planCount,
+     *         studentCount, completedCount, completionRate, gradedCount, passedCount, passRate }]
+     *         以及 total 汇总信息
+     */
+    Map<String, Object> getCourseAnalytics(Long semester);
 
     // ==================== 操作日志 ====================
 

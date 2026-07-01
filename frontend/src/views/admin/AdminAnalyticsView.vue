@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
@@ -10,6 +11,7 @@ import { getAdminOverview, getWarnings, exportReport } from '@/api/admin'
 
 use([CanvasRenderer, BarChart, PieChart, LineChart, TitleComponent, TooltipComponent, LegendComponent, GridComponent])
 
+const router = useRouter()
 const loading = ref(true)
 
 // 全校总览
@@ -64,6 +66,10 @@ const trendOption = computed(() => {
 // 预警名单
 const warnings = ref([])
 
+function goCourseAnalytics() {
+  router.push('/admin/analytics/courses')
+}
+
 const warningTypeConfig = {
   LONG_ABSENCE: '长期缺课', MISSING_HOMEWORK: '作业缺交', LOW_SCORE: '成绩偏低',
 }
@@ -112,15 +118,16 @@ onMounted(fetchData)
   <div class="page-container" v-loading="loading">
     <div class="page-header">
       <h1 class="page-title">全局学情监控</h1>
-      <el-button type="success" @click="handleExport">导出报表</el-button>
     </div>
 
     <!-- 总览卡片 -->
     <div class="stat-cards">
       <div class="stat-card"><div class="stat-label">全校学生</div><div class="stat-value primary">{{ overview.totalStudents }}</div></div>
-      <div class="stat-card"><div class="stat-label">开设课程</div><div class="stat-value success">{{ overview.totalCourses }}</div></div>
-      <div class="stat-card"><div class="stat-label">完成率</div><div class="stat-value primary">{{ overview.overallCompletionRate }}<small>%</small></div></div>
-      <div class="stat-card"><div class="stat-label">通过率</div><div class="stat-value success">{{ overview.overallPassRate }}<small>%</small></div></div>
+      <div class="stat-card clickable" @click="goCourseAnalytics">
+        <div class="stat-label">开设课程 <el-icon style="font-size:13px;vertical-align:-1px"><ArrowRight /></el-icon></div>
+        <div class="stat-value success">{{ overview.totalCourses }}</div>
+        <div style="font-size:12px;color:#909399;margin-top:2px">点击查看课程学情</div>
+      </div>
     </div>
 
     <!-- 图表 -->
@@ -214,6 +221,7 @@ onMounted(fetchData)
         <el-table-column prop="totalStudyHours" label="学习时长(h)" min-width="100" align="center" />
               </el-table>
     </div>
+
   </div>
 </template>
 
@@ -235,6 +243,16 @@ onMounted(fetchData)
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+.stat-card.clickable {
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+
+.stat-card.clickable:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(31, 111, 74, 0.15);
 }
 
 </style>

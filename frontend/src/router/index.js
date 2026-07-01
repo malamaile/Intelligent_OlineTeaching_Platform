@@ -132,6 +132,12 @@ const router = createRouter({
       meta: { title: '学情监控' },
     },
     {
+      path: '/admin/analytics/courses',
+      name: 'AdminCourseAnalytics',
+      component: () => import('@/views/admin/AdminCourseAnalyticsView.vue'),
+      meta: { title: '课程学情分析' },
+    },
+    {
       path: '/admin/announcements',
       name: 'AdminAnnouncements',
       component: () => import('@/views/admin/AdminAnnouncementsView.vue'),
