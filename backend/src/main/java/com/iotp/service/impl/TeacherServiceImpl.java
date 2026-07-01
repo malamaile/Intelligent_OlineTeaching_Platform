@@ -1347,8 +1347,10 @@ public class TeacherServiceImpl implements TeacherService {
         TeachingResource resource = new TeachingResource();
         resource.setResourceName((String) resourceData.get("resourceName"));
         resource.setDescription((String) resourceData.get("description"));
-        if (resourceData.containsKey("categoryId")) {
+        if (resourceData.containsKey("categoryId") && resourceData.get("categoryId") != null) {
             resource.setCategoryId(Long.valueOf(resourceData.get("categoryId").toString()));
+        } else {
+            resource.setCategoryId(1L);
         }
         // 默认值处理：前端可能不传文件信息
         String fileUrl = (String) resourceData.get("fileUrl");
