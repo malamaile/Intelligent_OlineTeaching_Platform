@@ -116,8 +116,6 @@ async function handleGuideUpload(options) {
 function handleGuideRemove(file) { guideFileList.value = guideFileList.value.filter(f => f.uid !== file.uid); syncGuideFiles() }
 
 // 文件预览
-const fileBaseUrl = import.meta.env.DEV ? 'http://localhost:8080' : ''
-
 function getFileExt(url) { if (!url) return ''; try { const p = url.split('?')[0]; const n = p.split('/').pop() || ''; const e = n.split('.').pop(); return e ? e.toLowerCase() : '' } catch { return '' } }
 function isOfficeFile(ext) { return ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'].includes(ext) }
 function isPreviewableInBrowser(ext) { return ['pdf', 'jpg', 'jpeg', 'png', 'gif', 'bmp', 'svg', 'webp', 'txt', 'md', 'csv', 'json', 'xml', 'html', 'log'].includes(ext) }
@@ -129,30 +127,37 @@ const previewFileExt = ref('')
 
 function openFilePreview(url, fileName) {
   if (!url) return
-  previewUrl.value = url.startsWith('http') ? url : (fileBaseUrl + url)
+  previewUrl.value = url
   previewFileName.value = fileName || url.split('/').pop() || '文件'
   previewFileExt.value = getFileExt(url)
   previewVisible.value = true
 }
 
-function handleGuidePreview(file) { openFilePreview(file.url, file.name) }
+function handleGuidePreview(file) {
+  // 逐段编码文件名，避免整体 encodeURIComponent 导致 % 双重编码
+  const url = file.url || ''
+  const prefix = '/api/v1/common/files/'
+  const raw = url.startsWith(prefix) ? url.substring(prefix.length) : url
+  const segments = raw.split('/')
+  const safe = segments.map(s => encodeURIComponent(decodeURIComponent(s))).join('/')
+  window.open('/api/v1/common/file?path=' + safe, '_blank')
+}
 
 function openInNewWindow(url) {
   if (!url) return
-  const w = window.open(url.startsWith('http') ? url : (fileBaseUrl + url), '_blank')
+  const w = window.open(url, '_blank')
   if (!w) ElMessage.warning('浏览器已拦截弹窗，请允许本站弹出窗口')
 }
 
 async function downloadFile(url, fileName) {
   if (!url) return
-  const fullUrl = url.startsWith('http') ? url : (fileBaseUrl + url)
   try {
-    const res = await fetch(fullUrl); if (!res.ok) throw new Error('fail')
+    const res = await fetch(url); if (!res.ok) throw new Error('fail')
     const blob = await res.blob(); const blobUrl = URL.createObjectURL(blob)
     const a = document.createElement('a'); a.href = blobUrl; a.download = fileName || url.split('/').pop() || 'download'
     document.body.appendChild(a); a.click(); document.body.removeChild(a); setTimeout(() => URL.revokeObjectURL(blobUrl), 100)
     ElMessage.success('下载完成')
-  } catch { window.open(fullUrl, '_blank') }
+  } catch { window.open(url, '_blank') }
 }
 
 function formatDate(str) {
