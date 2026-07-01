@@ -1,12 +1,15 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { BarChart, PieChart, LineChart } from 'echarts/charts'
 import { TitleComponent, TooltipComponent, LegendComponent, GridComponent } from 'echarts/components'
 import { getAdminOverview, getCourseAuditStatistics, getTaskAuditStatistics, getResourceAuditStatistics, getAuditCourseLogs } from '@/api/admin'
+import { getDepartments, getClasses } from '@/api/common'
+import { createDepartment } from '@/api/admin'
 
 use([CanvasRenderer, BarChart, PieChart, LineChart, TitleComponent, TooltipComponent, LegendComponent, GridComponent])
 
@@ -17,7 +20,74 @@ const loading = ref(true)
 const stats = ref({
   totalUsers: 0, activeStudents: 0, teachers: 0, admins: 0,
   frozenAccounts: 0, totalCourses: 0, pendingAudits: 0, totalResources: 0,
+  deptCount: 0, classCount: 0,
 })
+
+// 学院/班级列表弹窗
+const listDialogVisible = ref(false)
+const listDialogTitle = ref('')
+const listType = ref('') // 'dept' | 'class'
+const listData = ref([])
+const listLoading = ref(false)
+const classDeptFilter = ref('')
+
+async function showDeptList() {
+  listType.value = 'dept'
+  listDialogTitle.value = '学院列表'
+  listLoading.value = true
+  try {
+    const res = await getDepartments()
+    listData.value = res.data || []
+  } finally { listLoading.value = false }
+  listDialogVisible.value = true
+}
+
+async function showClassList(deptId) {
+  listType.value = 'class'
+  listDialogTitle.value = '班级列表'
+  listLoading.value = true
+  classDeptFilter.value = deptId ? String(deptId) : ''
+  try {
+    const res = await getClasses({ departmentId: deptId || undefined })
+    listData.value = res.data || []
+  } finally { listLoading.value = false }
+  listDialogVisible.value = true
+}
+
+async function onClassDeptFilterChange(val) {
+  listLoading.value = true
+  try {
+    const res = await getClasses({ departmentId: val || undefined })
+    listData.value = res.data || []
+  } finally { listLoading.value = false }
+}
+
+// 新建学院
+const deptDialogVisible = ref(false)
+const deptFormRef = ref(null)
+const deptForm = reactive({ deptName: '', deptCode: '' })
+const deptSaving = ref(false)
+const deptRules = { deptName: [{ required: true, message: '请输入学院名称', trigger: 'blur' }] }
+
+function openCreateDept() {
+  Object.assign(deptForm, { deptName: '', deptCode: '' })
+  deptDialogVisible.value = true
+}
+
+async function handleCreateDept() {
+  const valid = await deptFormRef.value.validate().catch(() => false)
+  if (!valid) return
+  deptSaving.value = true
+  try {
+    await createDepartment({ deptName: deptForm.deptName, deptCode: deptForm.deptCode || undefined })
+    ElMessage.success('学院创建成功')
+    deptDialogVisible.value = false
+    await fetchDepartments()
+    await fetchDashboard()
+  } catch (e) {
+    ElMessage.error(e?.message || '创建失败')
+  } finally { deptSaving.value = false }
+}
 
 // 审核统计
 const auditSummary = ref({
@@ -63,6 +133,15 @@ const userPieOption = computed(() => ({
 
 // 最近操作日志
 const recentLogs = ref([])
+
+// 院系列表（弹窗筛选用）
+const departmentOptions = ref([])
+async function fetchDepartments() {
+  try {
+    const res = await getDepartments()
+    departmentOptions.value = res.data || []
+  } catch {}
+}
 
 const bizTypeConfig = {
   COURSE_PLAN: { label: '课程', color: '#409eff' },
@@ -126,7 +205,7 @@ async function fetchDashboard() {
   }
 }
 
-onMounted(fetchDashboard)
+onMounted(() => { fetchDashboard(); fetchDepartments() })
 </script>
 
 <template>
@@ -164,6 +243,23 @@ onMounted(fetchDashboard)
           <div class="stat-label">冻结账号</div>
           <div class="stat-value">{{ stats.frozenAccounts }}<small> 个</small></div>
           <div class="stat-detail">需关注处理</div>
+        </div>
+      </el-col>
+      <el-col :xs="24" :sm="12" :lg="6">
+        <div class="card-l1 accent-info clickable-card" @click="showDeptList">
+          <div class="stat-label">学院总数 <el-icon style="font-size:12px;vertical-align:-1px"><ArrowRight /></el-icon></div>
+          <div class="stat-value">{{ stats.deptCount }}<small> 个</small></div>
+          <div class="stat-detail">点击查看学院列表</div>
+          <el-button class="card-add-btn" size="small" circle @click.stop="openCreateDept">
+            <el-icon><Plus /></el-icon>
+          </el-button>
+        </div>
+      </el-col>
+      <el-col :xs="24" :sm="12" :lg="6">
+        <div class="card-l1 accent-success clickable-card" @click="showClassList()">
+          <div class="stat-label">班级总数 <el-icon style="font-size:12px;vertical-align:-1px"><ArrowRight /></el-icon></div>
+          <div class="stat-value">{{ stats.classCount }}<small> 个</small></div>
+          <div class="stat-detail">点击查看班级列表</div>
         </div>
       </el-col>
     </el-row>
@@ -259,6 +355,52 @@ onMounted(fetchDashboard)
         </div>
       </el-col>
     </el-row>
+
+    <!-- 新建学院弹窗 -->
+    <el-dialog v-model="deptDialogVisible" title="新建学院" width="450px" destroy-on-close>
+      <el-form ref="deptFormRef" :model="deptForm" :rules="deptRules" label-width="80px">
+        <el-form-item label="学院名称" prop="deptName">
+          <el-input v-model="deptForm.deptName" placeholder="如：计算机学院" />
+        </el-form-item>
+        <el-form-item label="学院编码" prop="deptCode">
+          <el-input v-model="deptForm.deptCode" placeholder="如：CS（选填，默认同名称）" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="deptDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="deptSaving" @click="handleCreateDept">创建</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 学院/班级列表弹窗 -->
+    <el-dialog v-model="listDialogVisible" :title="listDialogTitle" width="700px" destroy-on-close>
+      <!-- 班级列表时：学院筛选 -->
+      <div v-if="listType === 'class'" style="margin-bottom:12px;display:flex;align-items:center;gap:10px">
+        <span style="font-size:13px;color:#606266">学院筛选：</span>
+        <el-select v-model="classDeptFilter" placeholder="全部学院" clearable style="width:200px" @change="onClassDeptFilterChange">
+          <el-option v-for="d in departmentOptions" :key="d.departmentId" :label="d.departmentName" :value="d.departmentId" />
+        </el-select>
+      </div>
+      <el-table :data="listData" v-loading="listLoading" stripe max-height="450">
+        <template v-if="listType === 'dept'">
+          <el-table-column prop="departmentName" label="学院名称" min-width="200" />
+          <el-table-column prop="departmentCode" label="编码" width="100" />
+        </template>
+        <template v-else>
+          <el-table-column prop="className" label="班级名称" min-width="180" />
+          <el-table-column prop="classCode" label="编码" width="100" />
+          <el-table-column prop="departmentName" label="所属学院" min-width="150" />
+          <el-table-column label="操作" width="100" align="center">
+            <template #default="{ row }">
+              <el-button size="small" link type="primary" @click="showClassList(row.departmentId); classDeptFilter = String(row.departmentId)">该院班级</el-button>
+            </template>
+          </el-table-column>
+        </template>
+      </el-table>
+      <template #footer>
+        <el-button @click="listDialogVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -285,4 +427,8 @@ onMounted(fetchDashboard)
 .log-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 .log-result { font-size: 12px; color: #909399; }
 .log-time { font-size: 12px; color: #c0c4cc; }
+.clickable-card { cursor: pointer; transition: transform 0.15s, box-shadow 0.15s; position: relative; }
+.clickable-card:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(31, 111, 74, 0.15); }
+.card-add-btn { position: absolute; top: 12px; right: 12px; }
+.kpi-row { row-gap: 16px; }
 </style>
