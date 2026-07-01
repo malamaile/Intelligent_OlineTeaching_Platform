@@ -219,23 +219,24 @@ async function handleResubmit(row) {
 
 // ========== 预览资源文件 ==========
 function handlePreview(row) {
-  if (!row.fileUrl) {
+  const url = row.fileUrl
+  if (!url) {
     ElMessage.warning('该资源暂无文件')
     return
   }
-  const baseUrl = import.meta.env.DEV ? 'http://localhost:8080' : ''
-  window.open(baseUrl + row.fileUrl, '_blank')
+  // 存储的 URL 格式为 /api/v1/common/files/...，相对路径即可，
+  // 开发环境走 Vite 代理，生产环境同源直接访问
+  window.open(url, '_blank')
 }
 
 // ========== 下载资源 ==========
 function handleDownload(row) {
-  if (!row.fileUrl) {
+  const url = row.fileUrl
+  if (!url) {
     ElMessage.warning('该资源暂无文件')
     return
   }
-  const baseUrl = import.meta.env.DEV ? 'http://localhost:8080' : ''
-  const fullUrl = baseUrl + row.fileUrl
-  fetch(fullUrl)
+  fetch(url)
     .then(res => res.blob())
     .then(blob => {
       const url = URL.createObjectURL(blob)
@@ -249,7 +250,7 @@ function handleDownload(row) {
       ElMessage.success('下载完成')
     })
     .catch(() => {
-      window.open(fullUrl, '_blank')
+      window.open(url, '_blank')
     })
 }
 
