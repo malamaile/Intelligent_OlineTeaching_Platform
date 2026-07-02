@@ -1,9 +1,11 @@
 <script setup>
 import { ref, reactive, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getUsers, getUserDetail, createUser, updateUser, updateUserStatus, resetUserPassword, importUsers } from '@/api/admin'
+import { getUsers, getUserDetail, createUser, updateUser, updateUserStatus, resetUserPassword, deleteUser, createClass, importUsers } from '@/api/admin'
+import { useUserStore } from '@/stores/user'
 import { getDepartments, getClasses } from '@/api/common'
 
+const userStore = useUserStore()
 const loading = ref(false)
 
 const users = ref([])
@@ -142,10 +144,20 @@ async function handleImport() {
   formData.append('file', importFile.value)
   try {
     const res = await importUsers(formData)
-    ElMessage.success(res.message || '导入完成')
+    const data = res.data || {}
+    const ok = data.successCount || 0
+    const fail = data.failCount || 0
+    if (fail > 0) {
+      ElMessage.warning(`导入完成：成功 ${ok} 条，失败 ${fail} 条`)
+    } else {
+      ElMessage.success(`成功导入 ${ok} 条`)
+    }
     importVisible.value = false
+    importFile.value = null
     await fetchUsers()
-  } catch {}
+  } catch (e) {
+    ElMessage.error(e?.message || '导入失败')
+  }
 }
 
 function handleFileChange(file) {
@@ -180,6 +192,57 @@ async function handleResetPassword(row) {
   }
 }
 
+async function handleDelete(row) {
+  if ((row.id || row.userId) === userStore.userId) {
+    ElMessage.warning('不能删除自己的账号')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(`确定永久删除用户「${row.userName}」吗？此操作不可恢复。`, '删除用户', { type: 'error', confirmButtonText: '确定删除' })
+  } catch { return }
+  try {
+    await deleteUser(row.id || row.userId)
+    ElMessage.success('用户已删除')
+    await fetchUsers()
+  } catch (e) {
+    ElMessage.error(e?.message || '删除失败')
+  }
+}
+
+// 新建班级
+const classDialogVisible = ref(false)
+const classFormRef = ref(null)
+const classForm = reactive({ className: '', classCode: '', departmentId: '', grade: '' })
+const classSaving = ref(false)
+
+const classRules = {
+  className: [{ required: true, message: '请输入班级名称', trigger: 'blur' }],
+  departmentId: [{ required: true, message: '请选择所属学院', trigger: 'change' }],
+}
+
+function openCreateClass() {
+  Object.assign(classForm, { className: '', classCode: '', departmentId: '', grade: '' })
+  classDialogVisible.value = true
+}
+
+async function handleCreateClass() {
+  const valid = await classFormRef.value.validate().catch(() => false)
+  if (!valid) return
+  classSaving.value = true
+  try {
+    await createClass({
+      className: classForm.className,
+      classCode: classForm.classCode || classForm.className,
+      departmentId: Number(classForm.departmentId),
+      grade: classForm.grade || undefined,
+    })
+    ElMessage.success('班级创建成功')
+    classDialogVisible.value = false
+  } catch (e) {
+    ElMessage.error(e?.message || '创建失败')
+  } finally { classSaving.value = false }
+}
+
 // 用户详情弹窗
 const detailVisible = ref(false)
 const detailLoading = ref(false)
@@ -210,19 +273,20 @@ onMounted(() => {
       <h1 class="page-title">用户管理</h1>
       <div>
         <el-button @click="importVisible = true">批量导入</el-button>
+        <el-button @click="openCreateClass">新建班级</el-button>
         <el-button type="primary" @click="openCreate">新增用户</el-button>
       </div>
     </div>
 
     <div class="card-wrapper">
       <div class="search-bar">
-        <el-input v-model="searchForm.keyword" placeholder="姓名/学号/工号" clearable style="width:180px" />
-        <el-select v-model="searchForm.role" placeholder="角色" clearable style="width:100px">
+        <el-input v-model="searchForm.keyword" placeholder="姓名/学号/工号" clearable class="search-input" />
+        <el-select v-model="searchForm.role" placeholder="角色" clearable class="search-select">
           <el-option label="学生" value="STUDENT" />
           <el-option label="教师" value="TEACHER" />
           <el-option label="管理员" value="ADMIN" />
         </el-select>
-        <el-select v-model="searchForm.status" placeholder="状态" clearable style="width:100px">
+        <el-select v-model="searchForm.status" placeholder="状态" clearable class="search-select">
           <el-option label="正常" value="ACTIVE" />
           <el-option label="已冻结" value="FROZEN" />
           <el-option label="已锁定" value="LOCKED" />
@@ -230,31 +294,32 @@ onMounted(() => {
         <el-button type="primary" @click="fetchUsers">查询</el-button>
       </div>
 
-      <el-table :data="users" v-loading="loading" stripe>
-        <el-table-column prop="account" label="账号" width="100" />
-        <el-table-column prop="userName" label="姓名" width="80" />
-        <el-table-column label="角色" width="70">
+      <el-table :data="users" v-loading="loading" stripe style="width:100%" @row-click="handleViewDetail">
+        <el-table-column prop="account" label="账号" min-width="90" />
+        <el-table-column prop="userName" label="姓名" min-width="70" />
+        <el-table-column label="角色" min-width="60">
           <template #default="{ row }">
             <el-tag size="small">{{ row.role === 'STUDENT' ? '学生' : row.role === 'TEACHER' ? '教师' : '管理员' }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="department" label="院系" width="140" />
-        <el-table-column prop="className" label="班级" width="150" />
-        <el-table-column prop="email" label="邮箱" width="140" />
-        <el-table-column label="状态" width="80">
+        <el-table-column prop="department" label="院系" min-width="100" />
+        <el-table-column prop="className" label="班级" min-width="110" />
+        <el-table-column prop="email" label="邮箱" min-width="130" show-overflow-tooltip />
+        <el-table-column label="状态" min-width="70">
           <template #default="{ row }">
             <el-tag :type="statusConfig[row.statusType]?.type" size="small">{{ statusConfig[row.statusType]?.label }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="lastLoginTime" label="最后登录" width="150" />
-        <el-table-column label="操作" width="340" fixed="right">
-          <template #default="{ row }">
-            <el-button size="small" @click="openEdit(row)">编辑</el-button>
-            <el-button size="small" type="primary" plain @click="handleViewDetail(row)">详情</el-button>
-            <el-button size="small" :type="row.statusType === 'ACTIVE' ? 'warning' : 'success'" @click="handleToggleStatus(row)">
-              {{ row.statusType === 'ACTIVE' ? '冻结' : '启用' }}
-            </el-button>
-            <el-button size="small" type="info" @click="handleResetPassword(row)">重置密码</el-button>
+        <el-table-column label="操作" min-width="320" fixed="right">
+          <template #default="{ row }" @click.stop>
+            <div class="action-btns">
+              <el-button size="small" @click.stop="openEdit(row)">编辑</el-button>
+              <el-button size="small" :type="row.statusType === 'ACTIVE' ? 'warning' : 'success'" @click.stop="handleToggleStatus(row)">
+                {{ row.statusType === 'ACTIVE' ? '冻结' : '启用' }}
+              </el-button>
+              <el-button size="small" type="info" @click.stop="handleResetPassword(row)">重置密码</el-button>
+              <el-button size="small" type="danger" @click.stop="handleDelete(row)" :disabled="(row.id || row.userId) === userStore.userId">删除</el-button>
+            </div>
           </template>
         </el-table-column>
       </el-table>
@@ -357,6 +422,30 @@ onMounted(() => {
       </template>
     </el-dialog>
 
+    <!-- 新建班级弹窗 -->
+    <el-dialog v-model="classDialogVisible" title="新建班级" width="500px" destroy-on-close>
+      <el-form ref="classFormRef" :model="classForm" :rules="classRules" label-width="80px">
+        <el-form-item label="班级名称" prop="className">
+          <el-input v-model="classForm.className" placeholder="如：软件工程2201班" />
+        </el-form-item>
+        <el-form-item label="班级编码" prop="classCode">
+          <el-input v-model="classForm.classCode" placeholder="如：SE2201（不填默认同名称）" />
+        </el-form-item>
+        <el-form-item label="所属学院" prop="departmentId">
+          <el-select v-model="classForm.departmentId" style="width:100%" placeholder="选择学院">
+            <el-option v-for="d in departmentOptions" :key="d.departmentId" :label="d.departmentName" :value="d.departmentId" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="年级" prop="grade">
+          <el-input v-model="classForm.grade" placeholder="如：2022（选填）" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="classDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="classSaving" @click="handleCreateClass">创建</el-button>
+      </template>
+    </el-dialog>
+
     <!-- 批量导入弹窗 -->
     <el-dialog v-model="importVisible" title="批量导入学生" width="500px">
       <el-alert title="请按模板格式上传Excel文件" type="info" :closable="false" show-icon style="margin-bottom:16px">
@@ -377,5 +466,30 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.page-header { display: flex; justify-content: space-between; align-items: center; }
+.page-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
+
+/* 表格行可点击 */
+:deep(.el-table__row) { cursor: pointer; }
+
+/* 操作按钮同一排 */
+.action-btns { display: flex; gap: 4px; flex-wrap: nowrap; }
+
+/* 搜索栏响应式 */
+.search-input { width: 180px; }
+.search-select { width: 100px; }
+
+@media (max-width: 1400px) {
+  .search-input { width: 140px; }
+  .search-select { width: 90px; }
+}
+
+@media (max-width: 1200px) {
+  .search-bar { flex-wrap: wrap; }
+  .search-input { width: 130px; }
+  .search-select { width: 85px; }
+}
+
+@media (max-width: 768px) {
+  .search-input, .search-select { width: 100%; min-width: 0; }
+}
 </style>
