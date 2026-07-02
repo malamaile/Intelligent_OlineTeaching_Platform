@@ -177,6 +177,11 @@ CREATE TABLE course_plan (
     class_id        BIGINT          NOT NULL                 COMMENT '授课班级ID',
     teacher_id      BIGINT          NOT NULL                 COMMENT '授课教师ID',
     schedule_info   VARCHAR(512)    DEFAULT NULL             COMMENT '授课周期及课时安排描述',
+    -- 邀请码
+    invite_code       VARCHAR(4)    DEFAULT NULL             COMMENT '4位邀请码',
+    invite_expire_time DATETIME     DEFAULT NULL             COMMENT '邀请码过期时间',
+    invite_approval   TINYINT(1)    DEFAULT 0                COMMENT '加入是否需要审核：0-否, 1-是',
+    invite_enabled    TINYINT(1)    DEFAULT 1                COMMENT '邀请码是否启用',
     -- 审核相关
     audit_status    VARCHAR(16)     NOT NULL DEFAULT 'PENDING' COMMENT '审核状态：PENDING-待审核, APPROVED-审核通过, REJECTED-审核驳回',
     audit_admin_id  BIGINT          DEFAULT NULL             COMMENT '审核管理员ID',
@@ -194,6 +199,18 @@ CREATE TABLE course_plan (
     KEY idx_audit_status (audit_status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='开课计划表';
 
+-- 2.3.1 开课计划与行政班级关联表（多对多）
+DROP TABLE IF EXISTS course_plan_class;
+CREATE TABLE course_plan_class (
+    id              BIGINT  NOT NULL AUTO_INCREMENT  COMMENT '关联ID',
+    course_plan_id  BIGINT  NOT NULL                 COMMENT '课程计划ID',
+    class_id        BIGINT  NOT NULL                 COMMENT '行政班级ID',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_plan_class (course_plan_id, class_id),
+    KEY idx_plan_id (course_plan_id),
+    KEY idx_class_id (class_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='课程计划与行政班级关联表';
+
 -- 2.4 学生选课/课程报名表
 DROP TABLE IF EXISTS student_course_enrollment;
 CREATE TABLE student_course_enrollment (
@@ -202,6 +219,7 @@ CREATE TABLE student_course_enrollment (
     course_plan_id  BIGINT          NOT NULL                 COMMENT '开课计划ID',
     progress_percent DECIMAL(5,2)   NOT NULL DEFAULT 0.00    COMMENT '学习进度百分比',
     is_completed    TINYINT(1)      NOT NULL DEFAULT 0       COMMENT '是否已完成学习：0-未完成, 1-已完成',
+    enroll_source   VARCHAR(16)     NOT NULL DEFAULT 'ADMIN_CLASS' COMMENT '来源：ADMIN_CLASS-行政班导入, INVITE-邀请码加入',
     enroll_time     DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '报名/选课时间',
     create_time     DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     update_time     DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
@@ -368,6 +386,7 @@ CREATE TABLE teaching_resource (
     teacher_id      BIGINT          NOT NULL                 COMMENT '上传教师ID',
     visibility      VARCHAR(16)     NOT NULL DEFAULT 'CLASS' COMMENT '可见范围：CLASS-本班, DEPT-本院, SCHOOL-全校',
     course_id       BIGINT          DEFAULT NULL             COMMENT '关联课程ID（可选）',
+    chapter_id      BIGINT          DEFAULT NULL             COMMENT '关联章节ID（可为空，为空表示独立资源）',
     -- 审核相关
     audit_status    VARCHAR(16)     NOT NULL DEFAULT 'PENDING' COMMENT '审核状态：PENDING-待审核, APPROVED-审核通过, REJECTED-审核驳回',
     audit_admin_id  BIGINT          DEFAULT NULL             COMMENT '审核管理员ID',
@@ -384,7 +403,8 @@ CREATE TABLE teaching_resource (
     KEY idx_teacher_id (teacher_id),
     KEY idx_visibility (visibility),
     KEY idx_audit_status (audit_status),
-    KEY idx_course_id (course_id)
+    KEY idx_course_id (course_id),
+    KEY idx_chapter_id (chapter_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='教学资源表';
 
 -- 5.3 学生资源收藏表
@@ -546,7 +566,29 @@ CREATE TABLE sys_login_log (
     KEY idx_login_time (login_time)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='登录日志表';
 
--- 8.3 操作审计日志表（审核流程追溯）
+-- 8.3 系统操作日志表
+DROP TABLE IF EXISTS sys_operation_log;
+CREATE TABLE sys_operation_log (
+    id              BIGINT          NOT NULL AUTO_INCREMENT  COMMENT '日志ID',
+    module          VARCHAR(64)     DEFAULT NULL             COMMENT '操作模块',
+    operation       VARCHAR(64)     DEFAULT NULL             COMMENT '操作类型',
+    description     VARCHAR(512)    DEFAULT NULL             COMMENT '操作描述',
+    operator_id     BIGINT          DEFAULT NULL             COMMENT '操作人ID',
+    operator_name   VARCHAR(64)     DEFAULT NULL             COMMENT '操作人姓名',
+    request_method  VARCHAR(16)     DEFAULT NULL             COMMENT '请求方法',
+    request_url     VARCHAR(256)    DEFAULT NULL             COMMENT '请求URL',
+    request_params  TEXT            DEFAULT NULL             COMMENT '请求参数',
+    result_status   TINYINT(1)      DEFAULT 1                COMMENT '执行结果 1成功 0失败',
+    error_msg       VARCHAR(1024)   DEFAULT NULL             COMMENT '错误信息',
+    duration_ms     BIGINT          DEFAULT NULL             COMMENT '耗时(ms)',
+    ip              VARCHAR(64)     DEFAULT NULL             COMMENT '操作IP',
+    create_time     DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    PRIMARY KEY (id),
+    KEY idx_operator_id (operator_id),
+    KEY idx_create_time (create_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='系统操作日志表';
+
+-- 8.4 操作审计日志表（审核流程追溯）
 DROP TABLE IF EXISTS sys_audit_log;
 CREATE TABLE sys_audit_log (
     id              BIGINT          NOT NULL AUTO_INCREMENT  COMMENT '审计日志ID',
