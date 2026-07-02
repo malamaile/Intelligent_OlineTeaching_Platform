@@ -117,6 +117,22 @@ public class StudentController {
     }
 
     /**
+     * 通过邀请码加入课程
+     *
+     * POST /student/courses/join-by-invite
+     * Body: { "inviteCode": "4827" }
+     */
+    @PostMapping("/courses/join-by-invite")
+    public Result<Map<String, Object>> joinByInviteCode(@RequestBody Map<String, Object> body) {
+        String inviteCode = (String) body.get("inviteCode");
+        if (inviteCode == null || inviteCode.trim().isEmpty()) {
+            return Result.badRequest("邀请码不能为空");
+        }
+        Map<String, Object> data = studentService.joinByInviteCode(inviteCode.trim());
+        return Result.ok("加入成功", data);
+    }
+
+    /**
      * 下载课程资料（章节附件）
      *
      * GET /student/courses/{courseId}/materials/{materialId}/download
