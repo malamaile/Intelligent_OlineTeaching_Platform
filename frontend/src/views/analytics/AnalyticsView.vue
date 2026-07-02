@@ -4,7 +4,7 @@ import { getAnalyticsOverview, getDiagnosisReport } from '@/api/student'
 import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
-import { BarChart, PieChart, LineChart, RadarChart } from 'echarts/charts'
+import { BarChart, PieChart, LineChart, RadarChart, ScatterChart } from 'echarts/charts'
 import {
   TitleComponent, TooltipComponent, LegendComponent,
   GridComponent, ToolboxComponent,
@@ -12,7 +12,7 @@ import {
 
 use([
   CanvasRenderer,
-  BarChart, PieChart, LineChart, RadarChart,
+  BarChart, PieChart, LineChart, RadarChart, ScatterChart,
   TitleComponent, TooltipComponent, LegendComponent,
   GridComponent, ToolboxComponent,
 ])
@@ -130,38 +130,37 @@ function buildDurationChart(courseStats) {
   }
 }
 
-// ========== 任务完成率雷达图 ==========
-const radarOption = ref(null)
+// ========== 实验均分vs实训均分 — 散点气泡图 ==========
+const scatterOption = ref(null)
 
-function buildRadarChart(courseStats) {
+function buildScatterChart(courseStats) {
   if (!courseStats?.length) return null
-  radarOption.value = {
-    tooltip: {},
-    legend: { data: ['习题正确率', '任务完成率'], bottom: 0 },
-    radar: {
-      center: ['50%', '45%'],
-      radius: '65%',
-      indicator: courseStats.map((c) => ({
-        name: c.courseName,
-        max: 100,
-      })),
+  scatterOption.value = {
+    tooltip: {
+      formatter: (p) => {
+        const d = p.data
+        return `<b>${d[3]}</b><br/>实验均分：${d[0]}<br/>实训均分：${d[1]}`
+      },
     },
+    grid: { top: 30, right: 30, bottom: 40, left: 50 },
+    xAxis: { name: '实验均分', min: 0, max: 100, axisLine: { lineStyle: { color: '#409eff' } } },
+    yAxis: { name: '实训均分', min: 0, max: 100, axisLine: { lineStyle: { color: '#67c23a' } } },
     series: [
       {
-        type: 'radar',
-        name: '习题正确率',
-        data: [{ value: courseStats.map((c) => c.exerciseCorrectRate), name: '习题正确率' }],
-        lineStyle: { color: '#409eff', width: 2 },
-        areaStyle: { color: 'rgba(64,158,255,0.15)' },
-        itemStyle: { color: '#409eff' },
-      },
-      {
-        type: 'radar',
-        name: '任务完成率',
-        data: [{ value: courseStats.map((c) => c.taskCompletionRate), name: '任务完成率' }],
-        lineStyle: { color: '#67c23a', width: 2 },
-        areaStyle: { color: 'rgba(103,194,58,0.15)' },
-        itemStyle: { color: '#67c23a' },
+        type: 'scatter',
+        symbolSize: (val) => Math.max(12, Math.min(40, val[2] / 2 + 8)),
+        data: courseStats.map((c) => [
+          Number(c.experimentScore) || 0,
+          Number(c.trainingScore) || 0,
+          Number(c.studyDuration) || 0,
+          c.courseName,
+        ]),
+        itemStyle: { color: '#FFFA99' },
+        label: { show: false },
+        emphasis: {
+          scale: 1.8,
+          label: { show: true, formatter: (p) => p.data[3], fontSize: 14, fontWeight: 'bold', color: '#303133' },
+        },
       },
     ],
   }
@@ -216,7 +215,7 @@ async function fetchData() {
     const stats = overRes.data?.courseStats || []
     buildScoreChart(stats)
     buildDurationChart(stats)
-    buildRadarChart(stats)
+    buildScatterChart(stats)
     buildWeeklyChart(overRes.data?.weeklyTrend || [])
   } finally {
     loading.value = false
@@ -277,8 +276,8 @@ onMounted(fetchData)
     <el-row :gutter="16">
       <el-col :span="12">
         <div class="card-wrapper">
-          <div class="card-title">正确率 & 完成率对比</div>
-          <VChart v-if="radarOption" :option="radarOption" style="height: 300px" autoresize />
+          <div class="card-title">实验均分vs实训均分</div>
+          <VChart v-if="scatterOption" :option="scatterOption" style="width:100%;height:300px" autoresize />
           <el-empty v-else description="暂无数据" :image-size="60" />
         </div>
       </el-col>

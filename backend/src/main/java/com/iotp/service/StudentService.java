@@ -58,7 +58,12 @@ public interface StudentService {
      * @param duration  本次观看时长（秒）
      * @return 包含 chapterProgress（章节进度）、courseProgress（课程进度百分比）的 Map
      */
-    Map<String, Object> updateProgress(Long courseId, Long chapterId, Integer position, Integer duration);
+    Map<String, Object> updateProgress(Long courseId, Long chapterId, Integer position, Integer duration, Integer pageDuration);
+
+    /**
+     * 通过邀请码加入课程
+     */
+    Map<String, Object> joinByInviteCode(String inviteCode);
 
     /**
      * 通过邀请码加入课程
@@ -145,6 +150,11 @@ public interface StudentService {
      * @return [fileName, fileBytes]
      */
     Object[] downloadResource(Long resourceId);
+
+    /**
+     * 下载课程资料（章节附件）
+     */
+    Object[] downloadMaterial(Long courseId, Long chapterId);
 
     // ==================== 学情分析 ====================
 

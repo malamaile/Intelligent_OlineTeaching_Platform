@@ -392,8 +392,8 @@ async function handleClearHistory() {
       <model-viewer
         v-if="!visible"
         src="/ai-avatar.glb"
-        auto-rotate
-        rotation-per-second="30deg"
+        autoplay
+        camera-orbit="90deg 75deg 105%"
         interaction-prompt="none"
         disable-zoom
         class="ai-ball-model"
@@ -409,8 +409,8 @@ async function handleClearHistory() {
           <div class="ai-header-left">
             <model-viewer
               src="/ai-avatar.glb"
-              auto-rotate
-              rotation-per-second="20deg"
+              autoplay
+              camera-orbit="90deg 75deg 105%"
               interaction-prompt="none"
               disable-zoom
               class="ai-header-model"
@@ -451,8 +451,8 @@ async function handleClearHistory() {
               <model-viewer
                 v-if="msg.role !== 'user'"
                 src="/ai-avatar.glb"
-                auto-rotate
-                rotation-per-second="15deg"
+                autoplay
+                camera-orbit="90deg 75deg 105%"
                 interaction-prompt="none"
                 disable-zoom
                 class="ai-msg-model"

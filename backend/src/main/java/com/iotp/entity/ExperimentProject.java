@@ -22,6 +22,10 @@ public class ExperimentProject {
     @TableField("project_type")
     private String projectType;
 
+    /** 所属课程ID */
+    @TableField("course_id")
+    private Long courseId;
+
     /** 教师ID */
     @TableField("teacher_id")
     private Long teacherId;
@@ -89,6 +93,9 @@ public class ExperimentProject {
     public void setProjectType(String projectType) {
         this.projectType = projectType;
     }
+
+    public Long getCourseId() { return courseId; }
+    public void setCourseId(Long courseId) { this.courseId = courseId; }
 
     public Long getTeacherId() {
         return teacherId;

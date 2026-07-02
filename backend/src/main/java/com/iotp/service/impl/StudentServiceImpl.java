@@ -538,7 +538,7 @@ public class StudentServiceImpl implements StudentService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public Map<String, Object> updateProgress(Long courseId, Long chapterId, Integer position, Integer duration) {
+    public Map<String, Object> updateProgress(Long courseId, Long chapterId, Integer position, Integer duration, Integer pageDuration) {
         Long studentId = UserContext.getUserId();
 
         // 1. 获取章节信息
@@ -632,7 +632,14 @@ public class StudentServiceImpl implements StudentService {
             }
         }
 
-        // 7. 返回结果
+        // 7. 更新今日学习时长统计（页面停留时间 + 视频观看时长）
+        int totalSeconds = (pageDuration != null ? pageDuration : 0)
+                + (duration != null ? duration : 0);
+        if (totalSeconds > 0) {
+            updateDailyStudyTime(studentId, courseId, totalSeconds);
+        }
+
+        // 8. 返回结果
         Map<String, Object> result = new LinkedHashMap<>();
         Map<String, Object> chapterProgress = new LinkedHashMap<>();
         chapterProgress.put("chapterId", chapterId);
@@ -643,6 +650,135 @@ public class StudentServiceImpl implements StudentService {
         result.put("courseProgress", courseProgress);
 
         return result;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public Map<String, Object> joinByInviteCode(String inviteCode) {
+        Long studentId = UserContext.getUserId();
+
+        // 1. 查找邀请码对应的课程计划
+        QueryWrapper<CoursePlan> planQw = new QueryWrapper<>();
+        planQw.eq("invite_code", inviteCode)
+                .eq("invite_enabled", 1);
+        CoursePlan plan = coursePlanMapper.selectOne(planQw);
+
+        if (plan == null) {
+            throw new BusinessException(400, "邀请码无效或已失效");
+        }
+
+        // 2. 检查是否过期
+        if (plan.getInviteExpireTime() != null
+                && plan.getInviteExpireTime().isBefore(LocalDateTime.now())) {
+            throw new BusinessException(400, "邀请码已过期");
+        }
+
+        // 3. 检查是否已加入
+        QueryWrapper<StudentCourseEnrollment> existQw = new QueryWrapper<>();
+        existQw.eq("student_id", studentId)
+                .eq("course_plan_id", plan.getId());
+        if (enrollmentMapper.selectCount(existQw) > 0) {
+            throw new BusinessException(400, "你已加入该课程，无需重复加入");
+        }
+
+        // 4. 插入选课记录
+        StudentCourseEnrollment enrollment = new StudentCourseEnrollment();
+        enrollment.setStudentId(studentId);
+        enrollment.setCoursePlanId(plan.getId());
+        enrollment.setEnrollSource("INVITE");
+        enrollmentMapper.insert(enrollment);
+
+        // 5. 获取课程信息
+        Course course = courseMapper.selectById(plan.getCourseId());
+        String courseName = course != null ? course.getCourseName() : "";
+
+        log.info("学生 {} 通过邀请码 {} 加入了课程 {}", studentId, inviteCode, courseName);
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("courseId", plan.getCourseId());
+        result.put("courseName", courseName);
+        result.put("planId", plan.getId());
+        return result;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public Map<String, Object> joinByInviteCode(String inviteCode) {
+        Long studentId = UserContext.getUserId();
+
+        // 1. 查找邀请码对应的课程计划
+        QueryWrapper<CoursePlan> planQw = new QueryWrapper<>();
+        planQw.eq("invite_code", inviteCode)
+                .eq("invite_enabled", 1);
+        CoursePlan plan = coursePlanMapper.selectOne(planQw);
+
+        if (plan == null) {
+            throw new BusinessException(400, "邀请码无效或已失效");
+        }
+
+        // 2. 检查是否过期
+        if (plan.getInviteExpireTime() != null
+                && plan.getInviteExpireTime().isBefore(LocalDateTime.now())) {
+            throw new BusinessException(400, "邀请码已过期");
+        }
+
+        // 3. 检查是否已加入
+        QueryWrapper<StudentCourseEnrollment> existQw = new QueryWrapper<>();
+        existQw.eq("student_id", studentId)
+                .eq("course_plan_id", plan.getId());
+        if (enrollmentMapper.selectCount(existQw) > 0) {
+            throw new BusinessException(400, "你已加入该课程，无需重复加入");
+        }
+
+        // 4. 插入选课记录
+        StudentCourseEnrollment enrollment = new StudentCourseEnrollment();
+        enrollment.setStudentId(studentId);
+        enrollment.setCoursePlanId(plan.getId());
+        enrollment.setEnrollSource("INVITE");
+        enrollmentMapper.insert(enrollment);
+
+        // 5. 获取课程信息
+        Course course = courseMapper.selectById(plan.getCourseId());
+        String courseName = course != null ? course.getCourseName() : "";
+
+        log.info("学生 {} 通过邀请码 {} 加入了课程 {}", studentId, inviteCode, courseName);
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("courseId", plan.getCourseId());
+        result.put("courseName", courseName);
+        result.put("planId", plan.getId());
+        return result;
+    }
+
+    /**
+     * 更新或创建今日学习分析记录
+     */
+    private void updateDailyStudyTime(Long studentId, Long courseId, Integer pageDurationSeconds) {
+        LocalDate today = LocalDate.now();
+        int addMinutes = Math.max(1, pageDurationSeconds / 60); // 最少记1分钟
+
+        QueryWrapper<LearningAnalyticsDaily> qw = new QueryWrapper<>();
+        qw.eq("student_id", studentId)
+          .eq("stat_date", today)
+          .eq("course_id", courseId);
+        LearningAnalyticsDaily daily = analyticsDailyMapper.selectOne(qw);
+
+        if (daily == null) {
+            daily = new LearningAnalyticsDaily();
+            daily.setStudentId(studentId);
+            daily.setStatDate(today);
+            daily.setCourseId(courseId);
+            daily.setStudyDurationMinutes(addMinutes);
+            daily.setExercisesCompleted(0);
+            daily.setExercisesCorrect(0);
+            daily.setTasksCompleted(0);
+            analyticsDailyMapper.insert(daily);
+        } else {
+            daily.setStudyDurationMinutes(
+                (daily.getStudyDurationMinutes() != null ? daily.getStudyDurationMinutes() : 0) + addMinutes
+            );
+            analyticsDailyMapper.updateById(daily);
+        }
     }
 
     @Override
@@ -746,16 +882,10 @@ public class StudentServiceImpl implements StudentService {
                 SysUser teacher = sysUserMapper.selectById(task.getTeacherId());
                 teacherName = teacher != null ? (teacher.getRealName() != null ? teacher.getRealName() : teacher.getUsername()) : "";
             }
-            if (classId != null && task.getTeacherId() != null) {
-                QueryWrapper<CoursePlan> cpQw = new QueryWrapper<>();
-                cpQw.eq("class_id", classId)
-                        .eq("teacher_id", task.getTeacherId())
-                        .last("LIMIT 1");
-                CoursePlan relatedPlan = coursePlanMapper.selectOne(cpQw);
-                if (relatedPlan != null) {
-                    Course relatedCourse = courseMapper.selectById(relatedPlan.getCourseId());
-                    courseName = relatedCourse != null ? relatedCourse.getCourseName() : "";
-                }
+            // 通过 project.course_id 直接获取课程
+            if (project != null && project.getCourseId() != null) {
+                Course relatedCourse = courseMapper.selectById(project.getCourseId());
+                courseName = relatedCourse != null ? relatedCourse.getCourseName() : "";
             }
 
             Map<String, Object> taskMap = new LinkedHashMap<>();
@@ -815,17 +945,10 @@ public class StudentServiceImpl implements StudentService {
             SysUser teacher = sysUserMapper.selectById(task.getTeacherId());
             teacherName = teacher != null ? (teacher.getRealName() != null ? teacher.getRealName() : teacher.getUsername()) : "";
         }
-        Long classId = getCurrentUserClassId();
-        if (classId != null && task.getTeacherId() != null) {
-            QueryWrapper<CoursePlan> cpQw = new QueryWrapper<>();
-            cpQw.eq("class_id", classId)
-                    .eq("teacher_id", task.getTeacherId())
-                    .last("LIMIT 1");
-            CoursePlan relatedPlan = coursePlanMapper.selectOne(cpQw);
-            if (relatedPlan != null) {
-                Course relatedCourse = courseMapper.selectById(relatedPlan.getCourseId());
-                courseName = relatedCourse != null ? relatedCourse.getCourseName() : "";
-            }
+        // 通过 project.course_id 直接获取课程
+        if (project != null && project.getCourseId() != null) {
+            Course relatedCourse = courseMapper.selectById(project.getCourseId());
+            courseName = relatedCourse != null ? relatedCourse.getCourseName() : "";
         }
 
         // 5. 构建指导文件列表（支持单 URL、URL 数组、{name,url} 对象数组）
@@ -938,7 +1061,7 @@ public class StudentServiceImpl implements StudentService {
         submission.setReportFileUrl(reportFileUrl);
         submission.setStatus(SUBMIT_STATUS_SUBMITTED);
         submission.setSubmitTime(LocalDateTime.now());
-        submission.setResubmitCount(0);
+        submission.setResubmitCount(1);
 
         submissionMapper.insert(submission);
 
@@ -1254,6 +1377,36 @@ public class StudentServiceImpl implements StudentService {
         }
     }
 
+    @Override
+    public Object[] downloadMaterial(Long courseId, Long chapterId) {
+        CourseChapter chapter = courseChapterMapper.selectById(chapterId);
+        if (chapter == null || !courseId.equals(chapter.getCourseId())) {
+            throw new BusinessException(404, "章节或资料不存在");
+        }
+        String attachmentUrl = chapter.getAttachmentUrl();
+        if (attachmentUrl == null || attachmentUrl.isEmpty()) {
+            throw new BusinessException(400, "该章节暂无资料附件");
+        }
+
+        // attachmentUrl 格式：/api/v1/common/files/courseware/xxx.pdf
+        String prefix = "/api/v1/common/files/";
+        String relativePath = attachmentUrl.startsWith(prefix)
+                ? attachmentUrl.substring(prefix.length())
+                : attachmentUrl;
+        Path filePath = Paths.get("uploads", relativePath);
+        if (!Files.exists(filePath) || !Files.isReadable(filePath)) {
+            throw new BusinessException(404, "文件未找到或不可读");
+        }
+
+        try {
+            byte[] fileBytes = Files.readAllBytes(filePath);
+            String fileName = filePath.getFileName().toString();
+            return new Object[]{fileName, fileBytes};
+        } catch (IOException e) {
+            throw new BusinessException(500, "文件读取失败");
+        }
+    }
+
     // ==================== 学情分析 ====================
 
     @Override
@@ -1318,35 +1471,87 @@ public class StudentServiceImpl implements StudentService {
                     .divide(BigDecimal.valueOf(totalTasks), 2, RoundingMode.HALF_UP);
         }
 
-        // 4. 各科统计
+        // 4.0 提前查询已批改的提交记录（用于各科实验/实训均分和整体均分）
+        QueryWrapper<StudentExperimentSubmission> avgSubQw = new QueryWrapper<>();
+        avgSubQw.eq("student_id", studentId)
+                .eq("status", SUBMIT_STATUS_GRADED)
+                .isNotNull("score");
+        List<StudentExperimentSubmission> allGradedSubs = submissionMapper.selectList(avgSubQw);
+
+        // 4. 各科统计（按成绩分组，有成绩的课程都显示）
         List<Map<String, Object>> courseStats = new ArrayList<>();
-        // 按课程分组
-        Map<Long, List<LearningAnalyticsDaily>> dailyByCourse = allDaily.stream()
-                .filter(d -> d.getCourseId() != null)
-                .collect(Collectors.groupingBy(LearningAnalyticsDaily::getCourseId));
-        for (Map.Entry<Long, List<LearningAnalyticsDaily>> entry : dailyByCourse.entrySet()) {
-            Long cid = entry.getKey();
+        // 从成绩表按课程分组
+        Map<Long, List<StudentGrade>> gradesByCourse = new LinkedHashMap<>();
+        for (StudentGrade g : grades) {
+            if (g.getCoursePlanId() != null) {
+                CoursePlan cp = coursePlanMapper.selectById(g.getCoursePlanId());
+                if (cp != null && cp.getCourseId() != null) {
+                    gradesByCourse.computeIfAbsent(cp.getCourseId(), k -> new ArrayList<>()).add(g);
+                }
+            }
+        }
+
+        // 从提交记录按课程汇总实验/实训得分（直接通过 project.courseId）
+        Map<Long, List<BigDecimal>> subExpScoresByCourse = new LinkedHashMap<>();
+        Map<Long, List<BigDecimal>> subTrainScoresByCourse = new LinkedHashMap<>();
+        for (StudentExperimentSubmission sub : allGradedSubs) {
+            ExperimentTask task = experimentTaskMapper.selectById(sub.getTaskId());
+            if (task == null) continue;
+            ExperimentProject project = experimentProjectMapper.selectById(task.getProjectId());
+            if (project == null || project.getCourseId() == null) continue;
+            Long courseId = project.getCourseId();
+            String pType = project.getProjectType();
+            if ("EXPERIMENT".equals(pType)) {
+                subExpScoresByCourse.computeIfAbsent(courseId, k -> new ArrayList<>()).add(sub.getScore());
+            } else if ("TRAINING".equals(pType)) {
+                subTrainScoresByCourse.computeIfAbsent(courseId, k -> new ArrayList<>()).add(sub.getScore());
+            }
+        }
+
+        // 合并所有有数据来源的课程：成绩 + 实验提交 + 实训提交 + 选课记录
+        Set<Long> allCourseIds = new LinkedHashSet<>();
+        allCourseIds.addAll(gradesByCourse.keySet());
+        allCourseIds.addAll(subExpScoresByCourse.keySet());
+        allCourseIds.addAll(subTrainScoresByCourse.keySet());
+        // 学生选课记录
+        QueryWrapper<StudentCourseEnrollment> enrollStatsQw = new QueryWrapper<>();
+        enrollStatsQw.eq("student_id", studentId);
+        List<StudentCourseEnrollment> allEnrollments = enrollmentMapper.selectList(enrollStatsQw);
+        for (StudentCourseEnrollment e : allEnrollments) {
+            if (e.getCoursePlanId() != null) {
+                CoursePlan cp = coursePlanMapper.selectById(e.getCoursePlanId());
+                if (cp != null && cp.getCourseId() != null) {
+                    allCourseIds.add(cp.getCourseId());
+                }
+            }
+        }
+
+        for (Long cid : allCourseIds) {
             Course course = courseMapper.selectById(cid);
             if (course == null) continue;
 
-            int courseMinutes = entry.getValue().stream()
+            // 该课程的学习时长（从 daily 表汇总，可能为 0）
+            int courseMinutes = allDaily.stream()
+                    .filter(d -> cid.equals(d.getCourseId()))
                     .mapToInt(d -> d.getStudyDurationMinutes() != null ? d.getStudyDurationMinutes() : 0)
                     .sum();
-            int courseTasks = entry.getValue().stream()
-                    .mapToInt(d -> d.getTasksCompleted() != null ? d.getTasksCompleted() : 0)
-                    .sum();
 
-            // 查该课程的成绩
+            // 该课程的总评成绩（多份取平均）
             BigDecimal courseScore = BigDecimal.ZERO;
-            for (StudentGrade g : grades) {
-                if (g.getCoursePlanId() != null) {
-                    CoursePlan cp = coursePlanMapper.selectById(g.getCoursePlanId());
-                    if (cp != null && cid.equals(cp.getCourseId()) && g.getFinalGrade() != null) {
-                        courseScore = g.getFinalGrade();
-                        break;
-                    }
+            List<StudentGrade> courseGrades = gradesByCourse.getOrDefault(cid, Collections.emptyList());
+            int finalCount = 0;
+            for (StudentGrade g : courseGrades) {
+                if (g.getFinalGrade() != null) {
+                    courseScore = courseScore.add(g.getFinalGrade());
+                    finalCount++;
                 }
             }
+            if (finalCount > 1) courseScore = courseScore.divide(BigDecimal.valueOf(finalCount), 2, RoundingMode.HALF_UP);
+
+            // 实验均分（从提交记录按课程汇总）
+            BigDecimal experimentScore = avgList(subExpScoresByCourse.get(cid));
+            // 实训均分（从提交记录按课程汇总）
+            BigDecimal trainingScore = avgList(subTrainScoresByCourse.get(cid));
 
             Map<String, Object> cs = new LinkedHashMap<>();
             cs.put("courseId", cid);
@@ -1354,9 +1559,11 @@ public class StudentServiceImpl implements StudentService {
             cs.put("studyDuration", courseMinutes);
             cs.put("studyMinutes", courseMinutes);
             cs.put("score", courseScore);
-            cs.put("tasksCompleted", courseTasks);
-            cs.put("exerciseCorrectRate", 0);   // 暂未跟踪
-            cs.put("taskCompletionRate", 0);    // 暂未跟踪
+            cs.put("tasksCompleted", 0);
+            cs.put("experimentScore", experimentScore);
+            cs.put("trainingScore", trainingScore);
+            cs.put("exerciseCorrectRate", BigDecimal.ZERO);
+            cs.put("taskCompletionRate", taskCompletionRate);
             courseStats.add(cs);
         }
 
@@ -1369,17 +1576,20 @@ public class StudentServiceImpl implements StudentService {
                     .with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
             LocalDate weekEnd = weekStart.plusDays(6);
 
+            // 学习时长
             QueryWrapper<LearningAnalyticsDaily> weekQw = new QueryWrapper<>();
             weekQw.eq("student_id", studentId)
                     .between("stat_date", weekStart, weekEnd);
             List<LearningAnalyticsDaily> weekData = analyticsDailyMapper.selectList(weekQw);
-
             int weekMin = weekData.stream()
                     .mapToInt(d -> d.getStudyDurationMinutes() != null ? d.getStudyDurationMinutes() : 0)
                     .sum();
-            int weekTasks = weekData.stream()
-                    .mapToInt(d -> d.getTasksCompleted() != null ? d.getTasksCompleted() : 0)
-                    .sum();
+
+            // 完成任务数（从提交记录统计）
+            QueryWrapper<StudentExperimentSubmission> weekSubQw = new QueryWrapper<>();
+            weekSubQw.eq("student_id", studentId)
+                    .between("submit_time", weekStart.atStartOfDay(), weekEnd.plusDays(1).atStartOfDay());
+            long weekTasks = submissionMapper.selectCount(weekSubQw);
 
             Map<String, Object> week = new LinkedHashMap<>();
             week.put("week", weekStart.format(weekFmt) + "-" + weekEnd.format(weekFmt));
@@ -1387,16 +1597,39 @@ public class StudentServiceImpl implements StudentService {
             week.put("weekEnd", weekEnd);
             week.put("duration", weekMin);
             week.put("studyMinutes", weekMin);
-            week.put("taskCount", weekTasks);
-            week.put("tasksCompleted", weekTasks);
+            week.put("taskCount", (int) weekTasks);
+            week.put("tasksCompleted", (int) weekTasks);
             weeklyTrend.add(week);
         }
 
-        // 6. 组装结果
+        // 6. 实验均分 & 实训均分（从已批改的实验实训提交记录取平均）
+        BigDecimal avgExperimentScore = BigDecimal.ZERO;
+        BigDecimal avgTrainingScore = BigDecimal.ZERO;
+        int expScoreCount = 0, trainScoreCount = 0;
+        for (StudentExperimentSubmission sub : allGradedSubs) {
+            ExperimentTask task = experimentTaskMapper.selectById(sub.getTaskId());
+            if (task == null) continue;
+            ExperimentProject project = experimentProjectMapper.selectById(task.getProjectId());
+            if (project == null) continue;
+            String pType = project.getProjectType();
+            if ("EXPERIMENT".equals(pType)) {
+                avgExperimentScore = avgExperimentScore.add(sub.getScore());
+                expScoreCount++;
+            } else if ("TRAINING".equals(pType)) {
+                avgTrainingScore = avgTrainingScore.add(sub.getScore());
+                trainScoreCount++;
+            }
+        }
+        if (expScoreCount > 0) avgExperimentScore = avgExperimentScore.divide(BigDecimal.valueOf(expScoreCount), 2, RoundingMode.HALF_UP);
+        if (trainScoreCount > 0) avgTrainingScore = avgTrainingScore.divide(BigDecimal.valueOf(trainScoreCount), 2, RoundingMode.HALF_UP);
+
+        // 7. 组装结果
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("totalStudyDuration", totalStudyMinutes);
         result.put("totalStudyMinutes", totalStudyMinutes);
         result.put("avgScore", avgScore);
+        result.put("avgExperimentScore", avgExperimentScore);
+        result.put("avgTrainingScore", avgTrainingScore);
         result.put("taskCompletionRate", taskCompletionRate);
         result.put("completedTasks", completedTasks);
         result.put("totalTasks", totalTasks);
@@ -1613,8 +1846,6 @@ public class StudentServiceImpl implements StudentService {
             gradeMap.put("trainingGrade", sg.getTrainingGrade());
             gradeMap.put("finalGrade", sg.getFinalGrade());
             gradeMap.put("gradeComment", sg.getGradeComment());
-            gradeMap.put("credit", BigDecimal.ZERO);   // 暂未跟踪
-            gradeMap.put("gpa", BigDecimal.ZERO);      // 暂未跟踪
 
             gradeList.add(gradeMap);
         }
@@ -1728,6 +1959,15 @@ public class StudentServiceImpl implements StudentService {
     /**
      * 获取当前登录学生的班级 ID
      */
+    private BigDecimal avgList(List<BigDecimal> list) {
+        if (list == null || list.isEmpty()) return BigDecimal.ZERO;
+        BigDecimal sum = BigDecimal.ZERO;
+        for (BigDecimal v : list) {
+            if (v != null) sum = sum.add(v);
+        }
+        return sum.divide(BigDecimal.valueOf(list.size()), 2, RoundingMode.HALF_UP);
+    }
+
     private Long getCurrentUserClassId() {
         Long studentId = UserContext.getUserId();
         SysUser user = sysUserMapper.selectById(studentId);

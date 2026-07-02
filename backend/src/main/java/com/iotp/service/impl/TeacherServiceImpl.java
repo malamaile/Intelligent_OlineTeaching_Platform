@@ -1122,6 +1122,18 @@ public class TeacherServiceImpl implements TeacherService {
         project.setGuideFileUrl((String) taskData.get("guideFileUrl"));
         project.setAuditStatus(AUDIT_PENDING);
 
+        // 关联课程：优先用 courseId，其次用 courseName 模糊匹配
+        Object courseVal = readInputField(taskData, "courseName", "courseId");
+        Long resolvedCourseId = null;
+        if (courseVal instanceof String) {
+            resolvedCourseId = resolveCourseId((String) courseVal);
+        } else if (courseVal instanceof Number) {
+            resolvedCourseId = Long.valueOf(courseVal.toString());
+        }
+        if (resolvedCourseId != null) {
+            project.setCourseId(resolvedCourseId);
+        }
+
         experimentProjectMapper.insert(project);
 
         // 2. 创建实验任务
@@ -1134,13 +1146,8 @@ public class TeacherServiceImpl implements TeacherService {
         } else if (clsVal != null) {
             task.setClassId(Long.valueOf(clsVal.toString()));
         }
-        // 关联课程：优先用 courseId，其次用 courseName 模糊匹配
-        Object courseVal = readInputField(taskData, "courseName", "courseId");
-        if (courseVal instanceof String) {
-            Long resolved = resolveCourseId((String) courseVal);
-            if (resolved != null) task.setCourseId(resolved);
-        } else if (courseVal != null) {
-            task.setCourseId(Long.valueOf(courseVal.toString()));
+        if (resolvedCourseId != null) {
+            task.setCourseId(resolvedCourseId);
         }
         task.setTeacherId(teacherId);
         task.setStartTime(taskData.get("startTime") != null

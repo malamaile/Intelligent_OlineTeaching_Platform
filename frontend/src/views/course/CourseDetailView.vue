@@ -18,6 +18,8 @@ const videoRef = ref(null)
 const playing = ref(false)
 const currentPosition = ref(0)
 let progressTimer = null
+let pageStaySeconds = 0
+let pageStayTimer = null
 
 // 章节状态映射
 const statusConfig = {
@@ -67,6 +69,7 @@ function startProgressReport() {
         chapterId: activeChapter.value.chapterId,
         position: Math.floor(videoRef.value.currentTime),
         duration: 30,
+        pageDuration: pageStaySeconds,
       }).catch(() => {})
     }
   }, 30000) // 每 30 秒上报一次
@@ -76,6 +79,30 @@ function stopProgressReport() {
   if (progressTimer) {
     clearInterval(progressTimer)
     progressTimer = null
+  }
+}
+
+// 页面停留计时
+function startPageStayTimer() {
+  pageStaySeconds = 0
+  pageStayTimer = setInterval(() => {
+    pageStaySeconds++
+  }, 1000)
+}
+
+function stopPageStayTimer() {
+  if (pageStayTimer) {
+    clearInterval(pageStayTimer)
+    pageStayTimer = null
+  }
+}
+
+// 页面可见性变化时暂停/恢复
+function handleVisibilityChange() {
+  if (document.hidden) {
+    stopPageStayTimer()
+  } else {
+    startPageStayTimer()
   }
 }
 
@@ -152,16 +179,31 @@ function formatMaterialSize(bytes) {
   return (bytes / 1024 / 1024).toFixed(1) + ' MB'
 }
 
-onMounted(fetchCourseDetail)
+onMounted(() => {
+  fetchCourseDetail()
+  startPageStayTimer()
+  document.addEventListener('visibilitychange', handleVisibilityChange)
+})
 
 onBeforeUnmount(() => {
   stopProgressReport()
-  // 离开页面时上报最终进度
+  stopPageStayTimer()
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
+  // 离开页面时上报最终进度（含页面停留时长）
   if (activeChapter.value && videoRef.value) {
     reportProgress(courseId, {
       chapterId: activeChapter.value.chapterId,
       position: Math.floor(videoRef.value.currentTime || 0),
       duration: 0,
+      pageDuration: pageStaySeconds,
+    }).catch(() => {})
+  } else if (pageStaySeconds > 0) {
+    // 即使没播放视频，也上报停留时长
+    reportProgress(courseId, {
+      chapterId: 0,
+      position: 0,
+      duration: 0,
+      pageDuration: pageStaySeconds,
     }).catch(() => {})
   }
 })

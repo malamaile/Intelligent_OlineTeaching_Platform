@@ -178,7 +178,7 @@ onMounted(() => {
 .course-cover {
   position: relative;
   height: 140px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #8fd3a8 0%, #d4f0df 100%);
   overflow: hidden;
 }
 

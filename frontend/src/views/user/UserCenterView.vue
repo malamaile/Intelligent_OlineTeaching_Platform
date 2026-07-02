@@ -388,8 +388,6 @@ function handleTabChange(tab) {
                 </span>
               </template>
             </el-table-column>
-            <el-table-column prop="credit" label="学分" width="60" />
-            <el-table-column prop="gpa" label="绩点" width="60" />
           </el-table>
           <el-pagination
             v-if="gradesPagination.total > 0"

@@ -31,7 +31,7 @@ public class AuthServiceImpl implements AuthService {
     private static final int RESET_TOKEN_EXPIRE_MINUTES = 5;
 
     /** 登录失败最大次数（超出后锁定） */
-    private static final int MAX_LOGIN_FAIL_COUNT = 5;
+    private static final int MAX_LOGIN_FAIL_COUNT = 100;
 
     /** 锁定时长（分钟） */
     private static final int LOCK_DURATION_MINUTES = 30;
