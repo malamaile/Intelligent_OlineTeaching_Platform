@@ -1,12 +1,17 @@
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getTeacherCourses, createCourse, updateCourse, deleteCourse, getGrades, saveGrades, exportGrades } from '@/api/teacher'
+import {
+  getTeacherCourses, createCourse, updateCourse, deleteCourse,
+  getGrades, saveGrades, exportGrades, getCourseProgress, updateChapters,
+} from '@/api/teacher'
+import { uploadFile } from '@/api/common'
 
 const loading = ref(false)
 const courses = ref([])
 const searchForm = reactive({ keyword: '', auditStatus: '', semester: '' })
-const pagination = reactive({ page: 1, pageSize: 10, total: 0 })
+const pagination = reactive({ page: 1, pageSize: Number(localStorage.getItem('coursePageSize')) || 10, total: 0 })
+watch(() => pagination.pageSize, v => localStorage.setItem('coursePageSize', v))
 
 const auditStatusConfig = {
   PENDING: { label: '待审核', type: 'warning' },
@@ -31,7 +36,7 @@ async function fetchCourses() {
   }
 }
 
-// 创建/编辑弹窗
+// ========== 课程创建/编辑 ==========
 const dialogVisible = ref(false)
 const dialogTitle = ref('创建开课计划')
 const saving = ref(false)
@@ -88,7 +93,123 @@ async function handleDelete(row) {
   await fetchCourses()
 }
 
-// 成绩管理弹窗
+// ========== 章节管理（独立弹窗） ==========
+const chapterVisible = ref(false)
+const chapterCourse = ref(null)
+const chapterSaving = ref(false)
+const chapters = ref([])
+let chapterIdCounter = 0
+
+function addChapter() {
+  chapterIdCounter++
+  chapters.value.push({
+    _key: chapterIdCounter,
+    chapterName: '',
+    chapterOrder: chapters.value.length + 1,
+    videoUrl: '',
+    videoFileName: '',
+    attachmentUrl: '',
+    attachmentFileName: '',
+  })
+}
+
+function removeChapter(index) {
+  chapters.value.splice(index, 1)
+  chapters.value.forEach((ch, i) => { ch.chapterOrder = i + 1 })
+}
+
+function moveChapterUp(index) {
+  if (index === 0) return
+  const tmp = chapters.value[index]
+  chapters.value[index] = chapters.value[index - 1]
+  chapters.value[index - 1] = tmp
+  chapters.value.forEach((ch, i) => { ch.chapterOrder = i + 1 })
+}
+
+function moveChapterDown(index) {
+  if (index >= chapters.value.length - 1) return
+  const tmp = chapters.value[index]
+  chapters.value[index] = chapters.value[index + 1]
+  chapters.value[index + 1] = tmp
+  chapters.value.forEach((ch, i) => { ch.chapterOrder = i + 1 })
+}
+
+const chapterVideoUploading = ref({})
+async function handleChapterVideoUpload(chapter, options) {
+  chapterVideoUploading.value[chapter._key] = true
+  try {
+    const fd = new FormData()
+    fd.append('file', options.file)
+    fd.append('module', 'resource')
+    const res = await uploadFile(fd)
+    chapter.videoUrl = res.data.fileUrl
+    chapter.videoFileName = res.data.fileName || options.file.name
+    ElMessage.success('视频上传成功')
+  } catch {
+    ElMessage.error('视频上传失败')
+  } finally {
+    chapterVideoUploading.value[chapter._key] = false
+  }
+}
+
+const chapterAttachmentUploading = ref({})
+async function handleChapterAttachmentUpload(chapter, options) {
+  chapterAttachmentUploading.value[chapter._key] = true
+  try {
+    const fd = new FormData()
+    fd.append('file', options.file)
+    fd.append('module', 'resource')
+    const res = await uploadFile(fd)
+    chapter.attachmentUrl = res.data.fileUrl
+    chapter.attachmentFileName = res.data.fileName || options.file.name
+    ElMessage.success('课件上传成功')
+  } catch {
+    ElMessage.error('课件上传失败')
+  } finally {
+    chapterAttachmentUploading.value[chapter._key] = false
+  }
+}
+
+async function openChapters(row) {
+  chapterCourse.value = row
+  chapterIdCounter = 0
+  chapters.value = []
+  chapterVisible.value = true
+  try {
+    const res = await getCourseProgress(row.courseId)
+    const list = res.data?.chapterProgress || []
+    chapters.value = list.map(ch => ({
+      _key: ++chapterIdCounter,
+      chapterName: ch.chapterName || '',
+      chapterOrder: ch.chapterOrder || 1,
+      videoUrl: ch.videoUrl || '',
+      videoFileName: '',
+      attachmentUrl: ch.attachmentUrl || '',
+      attachmentFileName: '',
+    }))
+  } catch {
+    chapters.value = []
+  }
+}
+
+async function handleChapterSave() {
+  chapterSaving.value = true
+  try {
+    await updateChapters(chapterCourse.value.courseId, {
+      chapters: chapters.value.map(ch => ({
+        chapterName: ch.chapterName,
+        chapterOrder: ch.chapterOrder,
+        videoUrl: ch.videoUrl,
+        contentText: '',
+        attachmentUrl: ch.attachmentUrl,
+      })),
+    })
+    ElMessage.success('章节保存成功')
+    chapterVisible.value = false
+  } catch {} finally { chapterSaving.value = false }
+}
+
+// ========== 成绩管理 ==========
 const gradeVisible = ref(false)
 const gradeCourse = ref(null)
 const gradeList = ref([])
@@ -122,7 +243,6 @@ async function handleGradeSave() {
   } catch {} finally { saving.value = false }
 }
 
-// 导出成绩
 async function handleExport(row) {
   try {
     const res = await exportGrades(row.courseId)
@@ -166,13 +286,8 @@ onMounted(fetchCourses)
         <el-table-column prop="semester" label="学期" width="120" />
         <el-table-column prop="className" label="授课班级" width="140" />
         <el-table-column prop="studentCount" label="学生数" width="80" />
-        <el-table-column label="课时" width="100">
-          <template #default="{ row }">{{ row.completedHours || 0 }}/{{ row.totalHours }} ({{ row.weeklyHours }}课时/周)</template>
-        </el-table-column>
-        <el-table-column label="进度" width="100">
-          <template #default="{ row }">
-            <el-progress :percentage="row.progress || 0" :stroke-width="6" :show-text="false" />
-          </template>
+        <el-table-column label="课时进度" width="130">
+          <template #default="{ row }"><span style="white-space:nowrap">{{ row.completedHours || 0 }}/{{ row.totalHours }} ({{ row.weeklyHours }}课时/周)</span></template>
         </el-table-column>
         <el-table-column label="审核状态" width="100">
           <template #default="{ row }">
@@ -181,9 +296,10 @@ onMounted(fetchCourses)
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="260" fixed="right">
+        <el-table-column label="操作" width="320" fixed="right">
           <template #default="{ row }">
             <el-button size="small" @click="openEdit(row)" :disabled="row.auditStatus === 'APPROVED'">编辑</el-button>
+            <el-button size="small" type="primary" @click="openChapters(row)">章节</el-button>
             <el-button size="small" type="warning" @click="openGrades(row)">成绩</el-button>
             <el-button size="small" type="success" @click="handleExport(row)">导出</el-button>
             <el-button size="small" type="danger" @click="handleDelete(row)" :disabled="row.auditStatus === 'APPROVED'">删除</el-button>
@@ -192,19 +308,20 @@ onMounted(fetchCourses)
       </el-table>
 
       <el-pagination
-        v-if="pagination.total > pagination.pageSize"
+        v-if="pagination.total"
         v-model:current-page="pagination.page"
         v-model:page-size="pagination.pageSize"
         :total="pagination.total"
+        :page-sizes="[5, 10, 20, 50]"
         layout="total, sizes, prev, pager, next"
         style="margin-top: 16px; justify-content: flex-end"
         @change="fetchCourses"
       />
     </div>
 
-    <!-- 创建/编辑弹窗 -->
-    <el-dialog v-model="dialogVisible" :title="dialogTitle" width="640px" destroy-on-close>
-      <el-form ref="courseFormRef" :model="courseForm" :rules="rules" label-width="100px">
+    <!-- ========== 创建/编辑课程弹窗 ========== -->
+    <el-dialog v-model="dialogVisible" :title="dialogTitle" width="560px" destroy-on-close>
+      <el-form ref="courseFormRef" :model="courseForm" :rules="rules" label-width="80px">
         <el-row :gutter="16">
           <el-col :span="12">
             <el-form-item label="课程名称" prop="courseName">
@@ -235,22 +352,22 @@ onMounted(fetchCourses)
         <el-row :gutter="16">
           <el-col :span="8">
             <el-form-item label="总课时">
-              <el-input-number v-model="courseForm.totalHours" :min="1" :max="200" />
+              <el-input-number v-model="courseForm.totalHours" :min="1" :max="200" style="width:100%" />
             </el-form-item>
           </el-col>
           <el-col :span="8">
             <el-form-item label="周课时">
-              <el-input-number v-model="courseForm.weeklyHours" :min="1" :max="20" />
+              <el-input-number v-model="courseForm.weeklyHours" :min="1" :max="20" style="width:100%" />
             </el-form-item>
           </el-col>
           <el-col :span="8">
             <el-form-item label="开课日期">
-              <el-date-picker v-model="courseForm.startDate" type="date" style="width:100%" />
+              <el-date-picker v-model="courseForm.startDate" type="date" style="width:100%" placeholder="选择日期" />
             </el-form-item>
           </el-col>
         </el-row>
         <el-form-item label="课程描述">
-          <el-input v-model="courseForm.description" type="textarea" :rows="3" placeholder="请输入课程描述..." />
+          <el-input v-model="courseForm.description" type="textarea" :rows="2" placeholder="请输入课程描述..." />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -259,31 +376,86 @@ onMounted(fetchCourses)
       </template>
     </el-dialog>
 
-    <!-- 成绩管理弹窗 -->
-    <el-dialog v-model="gradeVisible" :title="gradeCourse?.courseName + ' — 成绩管理'" width="700px">
-      <el-table :data="gradeList" stripe>
-        <el-table-column prop="userName" label="姓名" width="100" />
-        <el-table-column label="平时成绩" width="100">
+    <!-- ========== 章节管理弹窗（审核通过后可用） ========== -->
+    <el-dialog v-model="chapterVisible" :title="chapterCourse?.courseName + ' — 章节管理'" width="800px" destroy-on-close top="3vh">
+      <div class="chapter-toolbar">
+        <el-button type="primary" size="small" @click="addChapter">+ 添加章节</el-button>
+      </div>
+      <div v-if="chapters.length === 0" style="color:#909399;text-align:center;padding:24px 0">
+        暂未添加章节，请点击上方按钮创建
+      </div>
+      <div v-for="(ch, idx) in chapters" :key="ch._key" class="chapter-editor">
+        <div class="chapter-header">
+          <span class="chapter-label">第 {{ ch.chapterOrder }} 章</span>
+          <div class="chapter-actions">
+            <el-button size="small" text :disabled="idx === 0" @click="moveChapterUp(idx)">↑</el-button>
+            <el-button size="small" text :disabled="idx >= chapters.length - 1" @click="moveChapterDown(idx)">↓</el-button>
+            <el-button size="small" text type="danger" @click="removeChapter(idx)">删除</el-button>
+          </div>
+        </div>
+        <el-form-item label="章节名称" label-width="70px">
+          <el-input v-model="ch.chapterName" placeholder="如：第一章 Java概述" />
+        </el-form-item>
+        <el-row :gutter="16">
+          <el-col :span="12">
+            <el-form-item label="教学视频" label-width="70px">
+              <div class="upload-row">
+                <el-upload :show-file-list="false" :http-request="(opts) => handleChapterVideoUpload(ch, opts)" accept="video/*">
+                  <el-button size="small" :loading="chapterVideoUploading[ch._key]">上传视频</el-button>
+                </el-upload>
+                <span v-if="ch.videoFileName" class="upload-name">{{ ch.videoFileName }}</span>
+                <span v-else-if="ch.videoUrl" class="upload-name">已有视频</span>
+              </div>
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="课件附件" label-width="70px">
+              <div class="upload-row">
+                <el-upload :show-file-list="false" :http-request="(opts) => handleChapterAttachmentUpload(ch, opts)" accept=".pdf,.ppt,.pptx,.doc,.docx">
+                  <el-button size="small" :loading="chapterAttachmentUploading[ch._key]">上传课件</el-button>
+                </el-upload>
+                <span v-if="ch.attachmentFileName" class="upload-name">{{ ch.attachmentFileName }}</span>
+                <span v-else-if="ch.attachmentUrl" class="upload-name">已有课件</span>
+              </div>
+            </el-form-item>
+          </el-col>
+        </el-row>
+      </div>
+      <template #footer>
+        <el-button @click="chapterVisible = false">取消</el-button>
+        <el-button type="primary" :loading="chapterSaving" @click="handleChapterSave">保存章节</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- ========== 成绩管理弹窗 ========== -->
+    <el-dialog v-model="gradeVisible" :title="gradeCourse?.courseName + ' — 成绩管理'" destroy-on-close>
+      <el-table :data="gradeList" stripe max-height="500">
+        <el-table-column prop="userName" label="姓名" min-width="80" />
+        <el-table-column label="平时" min-width="100">
           <template #default="{ row }">
-            <el-input-number v-model="row.usualGrade" :min="0" :max="100" size="small" controls-position="right" />
+            <el-input-number v-model="row.usualGrade" :min="0" :max="100" size="small" controls-position="right" style="width:90px" />
           </template>
         </el-table-column>
-        <el-table-column label="考试成绩" width="100">
+        <el-table-column label="考试" min-width="100">
           <template #default="{ row }">
-            <el-input-number v-model="row.examGrade" :min="0" :max="100" size="small" controls-position="right" />
+            <el-input-number v-model="row.examGrade" :min="0" :max="100" size="small" controls-position="right" style="width:90px" />
           </template>
         </el-table-column>
-        <el-table-column v-if="hasExperiment" label="实验成绩" width="100">
+        <el-table-column v-if="hasExperiment" label="实验" min-width="100">
           <template #default="{ row }">
-            <el-input-number v-model="row.experimentGrade" :min="0" :max="100" size="small" controls-position="right" />
+            <span :style="{ color: row.experimentGrade != null ? '#303133' : '#c0c4cc' }">
+              {{ row.experimentGrade != null ? row.experimentGrade : '-' }}
+            </span>
           </template>
         </el-table-column>
-        <el-table-column v-if="hasTraining" label="实训成绩" width="100">
+        <el-table-column v-if="hasTraining" label="实训" min-width="100">
           <template #default="{ row }">
-            <el-input-number v-model="row.trainingGrade" :min="0" :max="100" size="small" controls-position="right" />
+            <span :style="{ color: row.trainingGrade != null ? '#303133' : '#c0c4cc' }">
+              {{ row.trainingGrade != null ? row.trainingGrade : '-' }}
+            </span>
           </template>
         </el-table-column>
-        <el-table-column label="总评" width="80">
+        <el-table-column label="总评" min-width="80">
           <template #default="{ row }">
             {{ row.finalGrade != null ? row.finalGrade : (Math.round(((row.usualGrade || 0) * 0.3 + (row.examGrade || 0) * 0.4 + ((row.experimentGrade || row.trainingGrade || 0) * 0.3)) * 10) / 10 || '-') }}
           </template>
@@ -302,5 +474,50 @@ onMounted(fetchCourses)
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+
+.chapter-toolbar {
+  margin-bottom: 12px;
+}
+
+.chapter-editor {
+  border: 1px solid #e4e7ed;
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 12px;
+  background: #fafafa;
+}
+
+.chapter-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.chapter-label {
+  font-weight: 600;
+  font-size: 14px;
+  color: #409eff;
+}
+
+.chapter-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.upload-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.upload-name {
+  font-size: 12px;
+  color: #67c23a;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>

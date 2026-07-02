@@ -481,8 +481,24 @@ public class StudentServiceImpl implements StudentService {
             chapterMap.put("contentText", chapter.getContentText());
             chapterMap.put("attachmentUrl", chapter.getAttachmentUrl());
             chapterMap.put("status", status);
-            // materials 暂为空数组
-            chapterMap.put("materials", new ArrayList<>());
+            // materials 从 teaching_resource 表查询已审核的章节课件
+            List<Map<String, Object>> materials = new ArrayList<>();
+            QueryWrapper<TeachingResource> matQw = new QueryWrapper<>();
+            matQw.eq("chapter_id", chapter.getId())
+                    .eq("audit_status", "APPROVED")
+                    .orderByAsc("create_time");
+            List<TeachingResource> matList = teachingResourceMapper.selectList(matQw);
+            for (TeachingResource mat : matList) {
+                Map<String, Object> matMap = new LinkedHashMap<>();
+                matMap.put("materialId", mat.getId());
+                matMap.put("name", mat.getResourceName());
+                matMap.put("fileUrl", mat.getFileUrl());
+                matMap.put("fileName", mat.getFileName());
+                matMap.put("fileType", mat.getFileType());
+                matMap.put("fileSize", mat.getFileSize());
+                materials.add(matMap);
+            }
+            chapterMap.put("materials", materials);
 
             if (progress != null) {
                 chapterMap.put("watchedDuration", progress.getWatchedDuration());
@@ -1137,16 +1153,32 @@ public class StudentServiceImpl implements StudentService {
             throw new BusinessException(404, "资源不存在");
         }
 
-        // 从 fileUrl 解析本地文件路径，fileUrl 格式：/api/v1/common/files/xxx/yyy/zzz.ext
+        // 从 fileUrl 解析本地文件路径
+        // 支持两种格式：
+        // 1. 旧格式：/api/v1/common/files/xxx/yyy/zzz.ext
+        // 2. 新格式：/api/v1/common/file?path=xxx%2Fyyy%2Fzzz.ext
         String fileUrl = resource.getFileUrl();
         if (fileUrl == null || fileUrl.isEmpty()) {
             throw new BusinessException(400, "资源文件不存在");
         }
 
-        String prefix = "/api/v1/common/files/";
-        String relativePath = fileUrl.startsWith(prefix)
-                ? fileUrl.substring(prefix.length())
-                : fileUrl;
+        String relativePath;
+        if (fileUrl.contains("?path=")) {
+            // 新格式：从查询参数中提取路径
+            String encoded = fileUrl.substring(fileUrl.indexOf("?path=") + 6);
+            try {
+                relativePath = java.net.URLDecoder.decode(encoded, "UTF-8");
+            } catch (Exception e) {
+                relativePath = encoded;
+            }
+        } else if (fileUrl.startsWith("/api/v1/common/files/")) {
+            // 旧格式
+            relativePath = fileUrl.substring("/api/v1/common/files/".length());
+        } else if (fileUrl.startsWith("/api/v1/common/file/")) {
+            relativePath = fileUrl.substring("/api/v1/common/file/".length());
+        } else {
+            relativePath = fileUrl.startsWith("/") ? fileUrl.substring(1) : fileUrl;
+        }
 
         Path filePath = Paths.get("uploads", relativePath);
         if (!Files.exists(filePath) || !Files.isReadable(filePath)) {

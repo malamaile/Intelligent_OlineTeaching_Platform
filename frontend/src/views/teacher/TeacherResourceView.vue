@@ -1,19 +1,20 @@
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { WarningFilled } from '@element-plus/icons-vue'
 import {
   getTeacherResources, uploadResource, deleteResource,
   updateResource, getAuditFeedback, resubmitResource,
+  getTeacherCourses,
 } from '@/api/teacher'
-import { getTeacherCourses } from '@/api/teacher'
 import { uploadFile } from '@/api/common'
 
 const loading = ref(false)
 
 const resources = ref([])
 const searchForm = reactive({ type: '', auditStatus: '', keyword: '' })
-const pagination = reactive({ page: 1, pageSize: 10, total: 0 })
+const pagination = reactive({ page: 1, pageSize: Number(localStorage.getItem('resourcePageSize')) || 10, total: 0 })
+watch(() => pagination.pageSize, v => localStorage.setItem('resourcePageSize', v))
 
 const typeTagMap = {
   COURSEWARE: 'primary',
@@ -96,7 +97,6 @@ function openUpload(row) {
   uploadedFiles.value = []
   loadCourseOptions()
   if (row) {
-    // 编辑模式：加载已有数据
     isEditing.value = true
     editingResourceId.value = row.resourceId
     uploadForm.resourceName = row.resourceName || row.name || ''
@@ -104,7 +104,6 @@ function openUpload(row) {
     uploadForm.courseName = row.courseName || ''
     uploadForm.visibility = row.visibility || row.scope || 'CLASS_ONLY'
     uploadForm.description = row.description || ''
-    // 已有文件信息
     if (row.fileUrl) {
       uploadedFiles.value = [{ name: row.fileName || '已上传文件', url: row.fileUrl }]
     }
@@ -384,9 +383,10 @@ onMounted(fetchResources)
       </el-table>
 
       <el-pagination
-        v-if="pagination.total > pagination.pageSize"
+        v-if="pagination.total"
         v-model:current-page="pagination.page"
         v-model:page-size="pagination.pageSize"
+        :page-sizes="[5, 10, 20, 50]"
         :total="pagination.total"
         layout="total, sizes, prev, pager, next"
         style="margin-top: 16px; justify-content: flex-end"

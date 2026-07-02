@@ -49,6 +49,10 @@ public class TeachingResource {
     @TableField("course_id")
     private Long courseId;
 
+    /** 关联章节ID（可为空，为空表示独立资源） */
+    @TableField("chapter_id")
+    private Long chapterId;
+
     /** 审核状态 */
     @TableField("audit_status")
     private String auditStatus;
@@ -173,6 +177,14 @@ public class TeachingResource {
         this.courseId = courseId;
     }
 
+    public Long getChapterId() {
+        return chapterId;
+    }
+
+    public void setChapterId(Long chapterId) {
+        this.chapterId = chapterId;
+    }
+
     public String getAuditStatus() {
         return auditStatus;
     }
@@ -259,6 +271,7 @@ public class TeachingResource {
                 ", teacherId=" + teacherId +
                 ", visibility='" + visibility + '\'' +
                 ", courseId=" + courseId +
+                ", chapterId=" + chapterId +
                 ", auditStatus='" + auditStatus + '\'' +
                 ", auditAdminId=" + auditAdminId +
                 ", auditComment='" + auditComment + '\'' +

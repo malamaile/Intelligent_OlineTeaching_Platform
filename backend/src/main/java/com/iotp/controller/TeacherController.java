@@ -99,6 +99,23 @@ public class TeacherController {
     }
 
     /**
+     * 更新课程章节（审核通过后仍可随时修改）
+     *
+     * PUT /teacher/courses/{courseId}/chapters
+     * Body: { "chapters": [...] }
+     */
+    @PutMapping("/courses/{courseId}/chapters")
+    public Result<String> updateChapters(
+            @PathVariable Long courseId,
+            @RequestBody Map<String, Object> body) {
+        @SuppressWarnings("unchecked")
+        java.util.List<Map<String, Object>> chapters =
+                (java.util.List<Map<String, Object>>) body.get("chapters");
+        teacherService.updateChapters(courseId, chapters);
+        return Result.ok("章节更新成功");
+    }
+
+    /**
      * 删除课程（软删除）
      *
      * DELETE /teacher/courses/{courseId}
