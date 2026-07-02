@@ -14,6 +14,10 @@ export function getCourseDetail(courseId) {
   return http.get(`/student/courses/${courseId}`)
 }
 
+export function joinByInviteCode(data) {
+  return http.post('/student/courses/join-by-invite', data)
+}
+
 export function reportProgress(courseId, data) {
   return http.post(`/student/courses/${courseId}/progress`, data)
 }

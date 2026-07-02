@@ -2,6 +2,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { getTasks, getTaskDetail, submitTask, resubmitTask, getTaskResult } from '@/api/student'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Document, UploadFilled } from '@element-plus/icons-vue'
 
 // ========== 列表 ==========
 const loading = ref(false)
@@ -166,6 +167,16 @@ async function openResult(task) {
   } catch { /* ignore */ }
 }
 
+// ========== 指导文档下载 ==========
+function handleGuideDownload(file) {
+  const link = document.createElement('a')
+  link.href = file.downloadUrl
+  link.setAttribute('download', file.name || 'download')
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+}
+
 // ========== 格式化 ==========
 function formatDate(str) {
   if (!str) return '-'
@@ -241,24 +252,33 @@ onMounted(fetchTasks)
             <span v-else class="no-score">-</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" min-width="190">
+        <el-table-column label="操作" min-width="220">
           <template #default="{ row }">
             <div class="action-buttons">
               <el-button size="small" @click="openDetail(row)">详情</el-button>
               <el-button
-                v-if="row.status === 'NOT_STARTED' || row.status === 'IN_PROGRESS' || row.status === 'RETURNED'"
+                v-if="row.status === 'RETURNED'"
                 type="primary" size="small"
                 @click="openSubmit(row)"
-              >
-                {{ row.status === 'RETURNED' ? '重新提交' : '提交' }}
-              </el-button>
+              >重新提交</el-button>
+              <el-button
+                v-else-if="row.status === 'SUBMITTED' || row.status === 'GRADED'"
+                class="submit-btn-disabled" size="small" disabled
+              >提交</el-button>
+              <el-button
+                v-else
+                type="primary" size="small"
+                @click="openSubmit(row)"
+              >提交</el-button>
               <el-button
                 v-if="row.status === 'GRADED' || row.status === 'RETURNED'"
-                type="info" size="small"
+                class="result-btn" size="small"
                 @click="openResult(row)"
-              >
-                查看结果
-              </el-button>
+              >查看结果</el-button>
+              <el-button
+                v-else
+                class="result-btn-disabled" size="small" disabled
+              >查看结果</el-button>
             </div>
           </template>
         </el-table-column>
@@ -297,18 +317,34 @@ onMounted(fetchTasks)
 
         <div class="detail-section" v-if="detail.guideFiles?.length">
           <h4>指导文档</h4>
-          <div v-for="f in detail.guideFiles" :key="f.fileId" class="guide-file">
-            <el-link type="primary" @click="window.open(f.downloadUrl, '_blank')">{{ f.name }}</el-link>
+          <div v-for="f in detail.guideFiles" :key="f.fileId" class="submission-section">
+            <div class="submission-file-row">
+              <el-icon :size="20" color="#409eff"><Document /></el-icon>
+              <span class="submission-file-name">{{ f.name }}</span>
+              <el-button size="small" type="primary" @click="handleGuideDownload(f)">下载</el-button>
+            </div>
           </div>
         </div>
 
         <div class="detail-section" v-if="detail.mySubmission">
           <h4>我的提交</h4>
-          <el-tag :type="statusConfig[detail.status]?.type" size="small">
-            {{ statusConfig[detail.status]?.label }}
-          </el-tag>
+          <el-descriptions :column="2" border size="small">
+            <el-descriptions-item label="状态">
+              <el-tag :type="statusConfig[detail.mySubmission.status]?.type" size="small">
+                {{ statusConfig[detail.mySubmission.status]?.label || detail.mySubmission.status }}
+              </el-tag>
+            </el-descriptions-item>
+            <el-descriptions-item label="分数">
+              <span v-if="detail.mySubmission.score != null" class="submission-score">{{ detail.mySubmission.score }} 分</span>
+              <span v-else style="color:#c0c4cc">未批改</span>
+            </el-descriptions-item>
+            <el-descriptions-item label="提交次数">
+              {{ detail.mySubmission.resubmitCount ?? 0 }}
+            </el-descriptions-item>
+          </el-descriptions>
         </div>
       </div>
+
     </el-dialog>
 
     <!-- ========== 提交报告弹窗 ========== -->
@@ -442,12 +478,16 @@ onMounted(fetchTasks)
   color: #606266;
 }
 
-.guide-file {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 0;
-  font-size: 13px;
+/* 指导文档 — 卡片格式（对齐教师端提交报告） */
+.submission-section { background: #fafafa; border-radius: 8px; padding: 14px 16px; margin-bottom: 8px; }
+.submission-section-title { font-size: 14px; font-weight: 600; color: #303133; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid #ebeef5; }
+.submission-file-row { display: flex; align-items: center; gap: 10px; }
+.submission-file-name { flex: 1; font-size: 13px; color: #606266; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.submission-score {
+  color: #1f6f4a;
+  font-weight: 600;
+  font-size: 15px;
 }
 
 .file-size {
@@ -523,5 +563,26 @@ onMounted(fetchTasks)
   gap: 6px;
   flex-wrap: nowrap;
   white-space: nowrap;
+}
+
+.result-btn {
+  --el-button-bg-color: #fdf6ec;
+  --el-button-border-color: #f5dab1;
+  --el-button-text-color: #b88230;
+  --el-button-hover-bg-color: #fdf3dc;
+  --el-button-hover-border-color: #f0c78a;
+  --el-button-hover-text-color: #9a6e28;
+}
+
+.submit-btn-disabled {
+  --el-button-bg-color: #d4e8dc;
+  --el-button-border-color: #b8d4c2;
+  --el-button-text-color: #8aaa96;
+}
+
+.result-btn-disabled {
+  --el-button-bg-color: #fbf7f0;
+  --el-button-border-color: #e8dcc8;
+  --el-button-text-color: #ceb88a;
 }
 </style>

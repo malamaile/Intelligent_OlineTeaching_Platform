@@ -59,6 +59,9 @@ public class TeacherServiceImpl implements TeacherService {
     private CourseChapterMapper courseChapterMapper;
 
     @Autowired
+    private CoursePlanClassMapper coursePlanClassMapper;
+
+    @Autowired
     private StudentCourseEnrollmentMapper enrollmentMapper;
 
     @Autowired
@@ -424,6 +427,21 @@ public class TeacherServiceImpl implements TeacherService {
             courseMap.put("completedHours", (int) (totalHours * progress.doubleValue() / 100));
             courseMap.put("progress", progress.intValue());
 
+            // 邀请码信息
+            courseMap.put("inviteCode", plan.getInviteCode());
+            courseMap.put("inviteEnabled", plan.getInviteEnabled());
+
+            // 关联班级名称列表
+            QueryWrapper<CoursePlanClass> cpcQw = new QueryWrapper<>();
+            cpcQw.eq("course_plan_id", plan.getId());
+            List<CoursePlanClass> cpcList = coursePlanClassMapper.selectList(cpcQw);
+            List<String> classNames = new ArrayList<>();
+            for (CoursePlanClass cpc : cpcList) {
+                SysClass sc = sysClassMapper.selectById(cpc.getClassId());
+                if (sc != null) classNames.add(sc.getClassName());
+            }
+            courseMap.put("classNames", classNames);
+
             courseList.add(courseMap);
         }
 
@@ -447,7 +465,9 @@ public class TeacherServiceImpl implements TeacherService {
         course.setCourseCode((String) courseData.get("courseCode"));
         course.setDescription((String) courseData.get("description"));
         course.setCoverImage((String) courseData.get("coverImage"));
-        // 获取 departmentId：前端传 > 教师所属院系 > 默认第1个院系
+        // 获取 departmentId：前端传 > 教师所属院系
+        //
+        // > 默认第1个院系
         if (courseData.containsKey("departmentId") && courseData.get("departmentId") != null) {
             course.setDepartmentId(Long.valueOf(courseData.get("departmentId").toString()));
         } else {
@@ -478,34 +498,45 @@ public class TeacherServiceImpl implements TeacherService {
             plan.setSemesterId(Long.valueOf(semesterVal.toString()));
         }
 
-        // 兼容前端字段名：className(班级名称字符串) / classId(Long)
-        Object classVal = readInputField(courseData, "className", "classId");
-        if (classVal instanceof String) {
-            Long resolved = resolveClassId((String) classVal);
-            if (resolved == null) {
-                throw new BusinessException(400, "未找到班级：" + classVal);
+        // 班级：支持多选行政班级 classIds 数组
+        List<Long> classIds = new ArrayList<>();
+        Object classIdsObj = courseData.get("classIds");
+        if (classIdsObj instanceof List) {
+            for (Object id : (List<?>) classIdsObj) {
+                classIds.add(Long.valueOf(id.toString()));
             }
-            plan.setClassId(resolved);
-        } else if (classVal != null) {
-            plan.setClassId(Long.valueOf(classVal.toString()));
         } else {
-            // 兜底：使用教师所属班级（如果教师只有一个班级）
-            QueryWrapper<CoursePlan> existingPlanQw = new QueryWrapper<>();
-            existingPlanQw.eq("teacher_id", teacherId)
-                    .eq("audit_status", AUDIT_APPROVED)
-                    .select("class_id")
-                    .last("LIMIT 1");
-            CoursePlan existingPlan = coursePlanMapper.selectOne(existingPlanQw);
-            if (existingPlan != null && existingPlan.getClassId() != null) {
-                plan.setClassId(existingPlan.getClassId());
-            } else {
-                throw new BusinessException(400, "班级信息不能为空，请传入 classId 或 className");
+            // 兼容旧字段
+            Object classVal = readInputField(courseData, "className", "classId");
+            if (classVal instanceof String) {
+                Long resolved = resolveClassId((String) classVal);
+                if (resolved != null) classIds.add(resolved);
+            } else if (classVal != null) {
+                classIds.add(Long.valueOf(classVal.toString()));
             }
         }
-
+        if (classIds.isEmpty()) {
+            throw new BusinessException(400, "请至少选择一个行政班级");
+        }
+        // 取第一个班级作为 plan.class_id（保持兼容）
+        plan.setClassId(classIds.get(0));
         plan.setTeacherId(teacherId);
 
-        // 如果前端没有传 scheduleInfo，则从 totalHours/weeklyHours/startDate/endDate 构建 JSON
+        // 邀请码处理
+        String inviteCode = (String) courseData.get("inviteCode");
+        if (inviteCode != null && !inviteCode.isEmpty()) {
+            plan.setInviteCode(inviteCode);
+        }
+        if (courseData.containsKey("inviteExpireTime") && courseData.get("inviteExpireTime") != null) {
+            String expStr = courseData.get("inviteExpireTime").toString();
+            plan.setInviteExpireTime(LocalDateTime.parse(expStr.replace(" ", "T").replaceFirst("\\.[0-9]+Z?$", "").replaceFirst("[+-]\\d{2}:\\d{2}$", "")));
+        }
+        plan.setInviteApproval(courseData.get("inviteApproval") != null
+                ? Integer.valueOf(courseData.get("inviteApproval").toString()) : 0);
+        plan.setInviteEnabled(courseData.get("inviteEnabled") != null
+                ? Integer.valueOf(courseData.get("inviteEnabled").toString()) : 1);
+
+        // scheduleInfo
         String scheduleInfo = (String) courseData.get("scheduleInfo");
         if (scheduleInfo == null) {
             try {
@@ -521,8 +552,35 @@ public class TeacherServiceImpl implements TeacherService {
         }
         plan.setScheduleInfo(scheduleInfo);
         plan.setAuditStatus(AUDIT_PENDING);
-
         coursePlanMapper.insert(plan);
+
+        // 3. 保存行政班级关联 + 自动导入学生
+        int enrolledCount = 0;
+        for (Long cid : classIds) {
+            CoursePlanClass cpc = new CoursePlanClass();
+            cpc.setCoursePlanId(plan.getId());
+            cpc.setClassId(cid);
+            coursePlanClassMapper.insert(cpc);
+
+            // 查询该班级的所有学生并自动入班（去重）
+            QueryWrapper<SysUser> stuQw = new QueryWrapper<>();
+            stuQw.eq("class_id", cid);
+            List<SysUser> students = sysUserMapper.selectList(stuQw);
+            for (SysUser stu : students) {
+                QueryWrapper<StudentCourseEnrollment> existQw = new QueryWrapper<>();
+                existQw.eq("student_id", stu.getId()).eq("course_plan_id", plan.getId());
+                if (enrollmentMapper.selectCount(existQw) == 0) {
+                    StudentCourseEnrollment enroll = new StudentCourseEnrollment();
+                    enroll.setStudentId(stu.getId());
+                    enroll.setCoursePlanId(plan.getId());
+                    enroll.setEnrollSource("ADMIN_CLASS");
+                    enrollmentMapper.insert(enroll);
+                    enrolledCount++;
+                }
+            }
+        }
+        log.info("教师 {} 创建课程计划 {}，关联 {} 个班级，自动导入 {} 名学生",
+                teacherId, plan.getId(), classIds.size(), enrolledCount);
 
         // 3. 创建章节
         List<Map<String, Object>> chapters = (List<Map<String, Object>>) courseData.get("chapters");
@@ -683,6 +741,43 @@ public class TeacherServiceImpl implements TeacherService {
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void updateChapters(Long courseId, java.util.List<Map<String, Object>> chapters) {
+        Long teacherId = UserContext.getUserId();
+
+        Course course = courseMapper.selectById(courseId);
+        if (course == null) {
+            throw new BusinessException(404, "课程不存在");
+        }
+
+        // 删除原有章节
+        QueryWrapper<CourseChapter> delQw = new QueryWrapper<>();
+        delQw.eq("course_id", courseId);
+        courseChapterMapper.delete(delQw);
+
+        // 插入新章节
+        if (chapters != null && !chapters.isEmpty()) {
+            for (int i = 0; i < chapters.size(); i++) {
+                Map<String, Object> ch = chapters.get(i);
+                CourseChapter chapter = new CourseChapter();
+                chapter.setCourseId(courseId);
+                chapter.setChapterName((String) ch.get("chapterName"));
+                chapter.setChapterOrder(ch.get("chapterOrder") != null
+                        ? Integer.valueOf(ch.get("chapterOrder").toString()) : i + 1);
+                chapter.setVideoUrl((String) ch.get("videoUrl"));
+                chapter.setVideoDuration(ch.get("videoDuration") != null
+                        ? Integer.valueOf(ch.get("videoDuration").toString()) : 0);
+                chapter.setContentText((String) ch.get("contentText"));
+                chapter.setAttachmentUrl((String) ch.get("attachmentUrl"));
+                courseChapterMapper.insert(chapter);
+            }
+        }
+
+        log.info("教师 {} 更新了课程 {} 的章节，共 {} 个", teacherId, courseId,
+                chapters != null ? chapters.size() : 0);
+    }
+
+    @Override
     public Map<String, Object> getCourseProgress(Long courseId) {
         // 1. 查询课程信息
         Course course = courseMapper.selectById(courseId);
@@ -761,6 +856,10 @@ public class TeacherServiceImpl implements TeacherService {
                 cp.put("chapterId", chapter.getId());
                 cp.put("chapterName", chapter.getChapterName());
                 cp.put("chapterOrder", chapter.getChapterOrder());
+                cp.put("videoUrl", chapter.getVideoUrl());
+                cp.put("videoDuration", chapter.getVideoDuration());
+                cp.put("contentText", chapter.getContentText());
+                cp.put("attachmentUrl", chapter.getAttachmentUrl());
                 cp.put("completedCount", completedCount);
                 cp.put("totalStudents", totalStudents);
                 cp.put("avgProgress", avgChapterProgress);
@@ -828,10 +927,11 @@ public class TeacherServiceImpl implements TeacherService {
             if (gradeEntry.containsKey("examGrade")) {
                 grade.setExamGrade(new BigDecimal(gradeEntry.get("examGrade").toString()));
             }
-            if (gradeEntry.containsKey("experimentGrade")) {
+            // 实验/实训成绩：允许手动覆盖，传 null 则不写入（保持自动计算值）
+            if (gradeEntry.get("experimentGrade") != null) {
                 grade.setExperimentGrade(new BigDecimal(gradeEntry.get("experimentGrade").toString()));
             }
-            if (gradeEntry.containsKey("trainingGrade")) {
+            if (gradeEntry.get("trainingGrade") != null) {
                 grade.setTrainingGrade(new BigDecimal(gradeEntry.get("trainingGrade").toString()));
             }
 
@@ -877,7 +977,17 @@ public class TeacherServiceImpl implements TeacherService {
         enrollQw.eq("course_plan_id", plan.getId());
         List<StudentCourseEnrollment> enrollments = enrollmentMapper.selectList(enrollQw);
 
-        // 3. 为每个学生查成绩
+        // 3. 查询该课程的所有实验/实训任务
+        QueryWrapper<ExperimentTask> courseTaskQw = new QueryWrapper<>();
+        courseTaskQw.eq("course_id", courseId);
+        List<ExperimentTask> courseTasks = experimentTaskMapper.selectList(courseTaskQw);
+        Map<Long, String> taskTypeMap = new LinkedHashMap<>(); // taskId -> EXPERIMENT/TRAINING
+        for (ExperimentTask t : courseTasks) {
+            ExperimentProject proj = experimentProjectMapper.selectById(t.getProjectId());
+            taskTypeMap.put(t.getId(), proj != null ? proj.getProjectType() : "EXPERIMENT");
+        }
+
+        // 4. 为每个学生查成绩
         List<Map<String, Object>> result = new ArrayList<>();
         for (StudentCourseEnrollment enrollment : enrollments) {
             SysUser student = sysUserMapper.selectById(enrollment.getStudentId());
@@ -888,13 +998,20 @@ public class TeacherServiceImpl implements TeacherService {
                     .eq("course_plan_id", plan.getId());
             StudentGrade grade = studentGradeMapper.selectOne(gradeQw);
 
+            // 自动计算实验/实训平均分
+            BigDecimal autoExperimentAvg = calcAvgTaskScore(enrollment.getStudentId(), courseTasks, taskTypeMap, "EXPERIMENT");
+            BigDecimal autoTrainingAvg = calcAvgTaskScore(enrollment.getStudentId(), courseTasks, taskTypeMap, "TRAINING");
+
             Map<String, Object> item = new LinkedHashMap<>();
             item.put("studentId", student.getId());
             item.put("userName", student.getRealName() != null ? student.getRealName() : student.getUsername());
             item.put("usualGrade", grade != null ? grade.getUsualGrade() : null);
             item.put("examGrade", grade != null ? grade.getExamGrade() : null);
-            item.put("experimentGrade", grade != null ? grade.getExperimentGrade() : null);
-            item.put("trainingGrade", grade != null ? grade.getTrainingGrade() : null);
+            // 实验/实训优先取已保存的手动值，否则用自动计算值
+            item.put("experimentGrade", grade != null && grade.getExperimentGrade() != null
+                    ? grade.getExperimentGrade() : autoExperimentAvg);
+            item.put("trainingGrade", grade != null && grade.getTrainingGrade() != null
+                    ? grade.getTrainingGrade() : autoTrainingAvg);
             item.put("finalGrade", grade != null ? grade.getFinalGrade() : null);
             result.add(item);
         }
@@ -1005,6 +1122,18 @@ public class TeacherServiceImpl implements TeacherService {
         project.setGuideFileUrl((String) taskData.get("guideFileUrl"));
         project.setAuditStatus(AUDIT_PENDING);
 
+        // 关联课程：优先用 courseId，其次用 courseName 模糊匹配
+        Object courseVal = readInputField(taskData, "courseName", "courseId");
+        Long resolvedCourseId = null;
+        if (courseVal instanceof String) {
+            resolvedCourseId = resolveCourseId((String) courseVal);
+        } else if (courseVal instanceof Number) {
+            resolvedCourseId = Long.valueOf(courseVal.toString());
+        }
+        if (resolvedCourseId != null) {
+            project.setCourseId(resolvedCourseId);
+        }
+
         experimentProjectMapper.insert(project);
 
         // 2. 创建实验任务
@@ -1017,13 +1146,8 @@ public class TeacherServiceImpl implements TeacherService {
         } else if (clsVal != null) {
             task.setClassId(Long.valueOf(clsVal.toString()));
         }
-        // 关联课程：优先用 courseId，其次用 courseName 模糊匹配
-        Object courseVal = readInputField(taskData, "courseName", "courseId");
-        if (courseVal instanceof String) {
-            Long resolved = resolveCourseId((String) courseVal);
-            if (resolved != null) task.setCourseId(resolved);
-        } else if (courseVal != null) {
-            task.setCourseId(Long.valueOf(courseVal.toString()));
+        if (resolvedCourseId != null) {
+            task.setCourseId(resolvedCourseId);
         }
         task.setTeacherId(teacherId);
         task.setStartTime(taskData.get("startTime") != null
@@ -1359,6 +1483,14 @@ public class TeacherServiceImpl implements TeacherService {
             } else {
                 resMap.put("courseName", "");
             }
+            // 章节关联信息
+            resMap.put("chapterId", res.getChapterId());
+            if (res.getChapterId() != null) {
+                CourseChapter ch = courseChapterMapper.selectById(res.getChapterId());
+                resMap.put("chapterName", ch != null ? ch.getChapterName() : "");
+            } else {
+                resMap.put("chapterName", "");
+            }
             resMap.put("viewCount", res.getViewCount());
             resMap.put("downloadCount", res.getDownloadCount());
             resMap.put("auditStatus", res.getAuditStatus());
@@ -1410,9 +1542,26 @@ public class TeacherServiceImpl implements TeacherService {
         } else if (resourceData.containsKey("courseId")) {
             resource.setCourseId(Long.valueOf(resourceData.get("courseId").toString()));
         }
+        // 关联章节
+        if (resourceData.containsKey("chapterId") && resourceData.get("chapterId") != null) {
+            resource.setChapterId(Long.valueOf(resourceData.get("chapterId").toString()));
+        }
         resource.setAuditStatus(AUDIT_PENDING);
         resource.setViewCount(0);
         resource.setDownloadCount(0);
+
+        teachingResourceMapper.insert(resource);
+
+        // 如果是视频类型且关联了章节，同步更新 course_chapter.video_url
+        if ("VIDEO".equals(resource.getFileType()) && resource.getChapterId() != null
+                && resource.getFileUrl() != null && !resource.getFileUrl().isEmpty()) {
+            CourseChapter chapter = courseChapterMapper.selectById(resource.getChapterId());
+            if (chapter != null) {
+                chapter.setVideoUrl(resource.getFileUrl());
+                courseChapterMapper.updateById(chapter);
+                log.info("同步章节 {} 的视频 URL: {}", chapter.getId(), resource.getFileUrl());
+            }
+        }
 
         teachingResourceMapper.insert(resource);
 
@@ -1479,8 +1628,24 @@ public class TeacherServiceImpl implements TeacherService {
         if (resourceData.containsKey("courseId")) {
             resource.setCourseId(Long.valueOf(resourceData.get("courseId").toString()));
         }
+        if (resourceData.containsKey("chapterId")) {
+            resource.setChapterId(resourceData.get("chapterId") != null
+                    ? Long.valueOf(resourceData.get("chapterId").toString()) : null);
+        }
 
         teachingResourceMapper.updateById(resource);
+
+        // 如果是视频类型且关联了章节，同步更新 course_chapter.video_url
+        if ("VIDEO".equals(resource.getFileType()) && resource.getChapterId() != null
+                && resource.getFileUrl() != null && !resource.getFileUrl().isEmpty()) {
+            CourseChapter chapter = courseChapterMapper.selectById(resource.getChapterId());
+            if (chapter != null) {
+                chapter.setVideoUrl(resource.getFileUrl());
+                courseChapterMapper.updateById(chapter);
+                log.info("同步章节 {} 的视频 URL: {}", chapter.getId(), resource.getFileUrl());
+            }
+        }
+
         log.info("教师 {} 更新了教学资源 {}", teacherId, resourceId);
     }
 
@@ -1529,6 +1694,10 @@ public class TeacherServiceImpl implements TeacherService {
         }
         if (resourceData.containsKey("fileName")) {
             resource.setFileName((String) resourceData.get("fileName"));
+        }
+        if (resourceData.containsKey("chapterId")) {
+            resource.setChapterId(resourceData.get("chapterId") != null
+                    ? Long.valueOf(resourceData.get("chapterId").toString()) : null);
         }
 
         // 重置审核状态为待审核
@@ -2492,7 +2661,15 @@ public class TeacherServiceImpl implements TeacherService {
         QueryWrapper<SysSemester> qw = new QueryWrapper<>();
         qw.eq("semester_name", semesterName);
         SysSemester sem = sysSemesterMapper.selectOne(qw);
-        return sem != null ? sem.getId() : null;
+        if (sem != null) return sem.getId();
+        // fallback：用 LIKE 模糊匹配
+        QueryWrapper<SysSemester> likeQw = new QueryWrapper<>();
+        likeQw.like("semester_name", semesterName);
+        SysSemester likeSem = sysSemesterMapper.selectOne(likeQw);
+        if (likeSem != null) return likeSem.getId();
+        // 最后兜底：取第一个学期
+        List<SysSemester> all = sysSemesterMapper.selectList(null);
+        return (all != null && !all.isEmpty()) ? all.get(0).getId() : null;
     }
 
     /**
@@ -2521,6 +2698,29 @@ public class TeacherServiceImpl implements TeacherService {
         qw.eq("course_name", courseName);
         Course course = courseMapper.selectOne(qw);
         return course != null ? course.getId() : null;
+    }
+
+    /**
+     * 计算学生某类型任务的平均分（只统计已批阅成绩）
+     */
+    private BigDecimal calcAvgTaskScore(Long studentId, List<ExperimentTask> courseTasks,
+                                         Map<Long, String> taskTypeMap, String type) {
+        BigDecimal total = BigDecimal.ZERO;
+        int count = 0;
+        for (ExperimentTask task : courseTasks) {
+            if (!type.equals(taskTypeMap.get(task.getId()))) continue;
+            QueryWrapper<StudentExperimentSubmission> subQw = new QueryWrapper<>();
+            subQw.eq("task_id", task.getId())
+                    .eq("student_id", studentId)
+                    .eq("status", "GRADED")
+                    .isNotNull("score");
+            StudentExperimentSubmission sub = submissionMapper.selectOne(subQw);
+            if (sub != null && sub.getScore() != null) {
+                total = total.add(sub.getScore());
+                count++;
+            }
+        }
+        return count > 0 ? total.divide(BigDecimal.valueOf(count), 1, RoundingMode.HALF_UP) : null;
     }
 
     /**

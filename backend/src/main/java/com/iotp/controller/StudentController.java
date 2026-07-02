@@ -93,21 +93,55 @@ public class StudentController {
                 ? Integer.valueOf(body.get("position").toString()) : 0;
         Integer duration = body.get("duration") != null
                 ? Integer.valueOf(body.get("duration").toString()) : 0;
+        Integer pageDuration = body.get("pageDuration") != null
+                ? Integer.valueOf(body.get("pageDuration").toString()) : 0;
 
-        Map<String, Object> data = studentService.updateProgress(courseId, chapterId, position, duration);
+        Map<String, Object> data = studentService.updateProgress(courseId, chapterId, position, duration, pageDuration);
         return Result.ok(data);
     }
 
     /**
-     * 下载课程资料（功能开发中）
+     * 通过邀请码加入课程
+     *
+     * POST /student/courses/join-by-invite
+     * Body: { "inviteCode": "4827" }
+     */
+    @PostMapping("/courses/join-by-invite")
+    public Result<Map<String, Object>> joinByInviteCode(@RequestBody Map<String, Object> body) {
+        String inviteCode = (String) body.get("inviteCode");
+        if (inviteCode == null || inviteCode.trim().isEmpty()) {
+            return Result.badRequest("邀请码不能为空");
+        }
+        Map<String, Object> data = studentService.joinByInviteCode(inviteCode.trim());
+        return Result.ok("加入成功", data);
+    }
+
+    /**
+     * 下载课程资料（章节附件）
      *
      * GET /student/courses/{courseId}/materials/{materialId}/download
+     * materialId 对应章节 ID
      */
     @GetMapping("/courses/{courseId}/materials/{materialId}/download")
-    public Result<String> downloadMaterial(
+    public void downloadMaterial(
             @PathVariable Long courseId,
-            @PathVariable Long materialId) {
-        return Result.ok("功能开发中");
+            @PathVariable Long materialId,
+            javax.servlet.http.HttpServletResponse response) {
+        Object[] result = studentService.downloadMaterial(courseId, materialId);
+        String fileName = (String) result[0];
+        byte[] fileBytes = (byte[]) result[1];
+
+        try {
+            response.setContentType("application/octet-stream");
+            response.setHeader("Content-Disposition",
+                    "attachment; filename*=UTF-8''" + java.net.URLEncoder.encode(fileName, "UTF-8").replace("+", "%20"));
+            response.setContentLength(fileBytes.length);
+            response.getOutputStream().write(fileBytes);
+            response.getOutputStream().flush();
+        } catch (java.io.IOException e) {
+            log.error("课程资料下载失败：{}", e.getMessage(), e);
+            throw new RuntimeException("文件下载失败", e);
+        }
     }
 
     // ==================== 实验任务 ====================

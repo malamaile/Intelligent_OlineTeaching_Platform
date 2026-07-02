@@ -79,7 +79,7 @@ onMounted(fetchDashboard)
         </div>
       </el-col>
       <el-col :xs="24" :sm="12" :lg="8">
-        <div class="card-l1 accent-warning">
+        <div class="card-l1 accent-warning kpi-clickable" @click="router.push('/tasks')">
           <div class="stat-label">待完成任务</div>
           <div class="stat-value">{{ dashboardData.todayStats.pendingTasks }}<small> 项</small></div>
         </div>
@@ -197,6 +197,10 @@ onMounted(fetchDashboard)
 /* KPI row spacing */
 .kpi-row {
   margin-bottom: 16px;
+}
+
+.kpi-clickable {
+  cursor: pointer;
 }
 
 .todo-list,

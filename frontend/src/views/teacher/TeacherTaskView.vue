@@ -1,5 +1,5 @@
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { View, Document, WarningFilled, TopRight, Download, Close } from '@element-plus/icons-vue'
@@ -11,7 +11,8 @@ const loading = ref(false)
 
 const tasks = ref([])
 const searchForm = reactive({ taskType: '', auditStatus: '' })
-const pagination = reactive({ page: 1, pageSize: 10, total: 0 })
+const pagination = reactive({ page: 1, pageSize: Number(localStorage.getItem('taskPageSize')) || 10, total: 0 })
+watch(() => pagination.pageSize, v => localStorage.setItem('taskPageSize', v))
 
 const auditStatusConfig = {
   PENDING: { label: '待审核', type: 'warning' },
@@ -280,7 +281,7 @@ onMounted(async () => {
         </el-table-column>
       </el-table>
 
-      <el-pagination v-if="pagination.total > pagination.pageSize" v-model:current-page="pagination.page" v-model:page-size="pagination.pageSize" :total="pagination.total" layout="total, sizes, prev, pager, next" style="margin-top:16px;justify-content:flex-end" @change="fetchTasks" />
+      <el-pagination v-if="pagination.total" v-model:current-page="pagination.page" v-model:page-size="pagination.pageSize" :page-sizes="[5,10,20,50]" :total="pagination.total" layout="total, sizes, prev, pager, next" style="margin-top:16px;justify-content:flex-end" @change="fetchTasks" />
     </div>
 
     <!-- 创建/编辑弹窗 -->
