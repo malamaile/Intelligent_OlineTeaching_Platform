@@ -31,6 +31,22 @@ public class CoursePlan {
     @TableField("schedule_info")
     private String scheduleInfo;
 
+    /** 4位邀请码 */
+    @TableField("invite_code")
+    private String inviteCode;
+
+    /** 邀请码过期时间 */
+    @TableField("invite_expire_time")
+    private LocalDateTime inviteExpireTime;
+
+    /** 加入是否需要审核 */
+    @TableField("invite_approval")
+    private Integer inviteApproval;
+
+    /** 邀请码是否启用 */
+    @TableField("invite_enabled")
+    private Integer inviteEnabled;
+
     /** 审核状态 */
     @TableField("audit_status")
     private String auditStatus;
@@ -109,6 +125,15 @@ public class CoursePlan {
     public void setScheduleInfo(String scheduleInfo) {
         this.scheduleInfo = scheduleInfo;
     }
+
+    public String getInviteCode() { return inviteCode; }
+    public void setInviteCode(String inviteCode) { this.inviteCode = inviteCode; }
+    public LocalDateTime getInviteExpireTime() { return inviteExpireTime; }
+    public void setInviteExpireTime(LocalDateTime inviteExpireTime) { this.inviteExpireTime = inviteExpireTime; }
+    public Integer getInviteApproval() { return inviteApproval; }
+    public void setInviteApproval(Integer inviteApproval) { this.inviteApproval = inviteApproval; }
+    public Integer getInviteEnabled() { return inviteEnabled; }
+    public void setInviteEnabled(Integer inviteEnabled) { this.inviteEnabled = inviteEnabled; }
 
     public String getAuditStatus() {
         return auditStatus;

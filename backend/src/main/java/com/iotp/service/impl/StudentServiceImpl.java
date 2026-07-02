@@ -645,6 +645,55 @@ public class StudentServiceImpl implements StudentService {
         return result;
     }
 
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public Map<String, Object> joinByInviteCode(String inviteCode) {
+        Long studentId = UserContext.getUserId();
+
+        // 1. 查找邀请码对应的课程计划
+        QueryWrapper<CoursePlan> planQw = new QueryWrapper<>();
+        planQw.eq("invite_code", inviteCode)
+                .eq("invite_enabled", 1);
+        CoursePlan plan = coursePlanMapper.selectOne(planQw);
+
+        if (plan == null) {
+            throw new BusinessException(400, "邀请码无效或已失效");
+        }
+
+        // 2. 检查是否过期
+        if (plan.getInviteExpireTime() != null
+                && plan.getInviteExpireTime().isBefore(LocalDateTime.now())) {
+            throw new BusinessException(400, "邀请码已过期");
+        }
+
+        // 3. 检查是否已加入
+        QueryWrapper<StudentCourseEnrollment> existQw = new QueryWrapper<>();
+        existQw.eq("student_id", studentId)
+                .eq("course_plan_id", plan.getId());
+        if (enrollmentMapper.selectCount(existQw) > 0) {
+            throw new BusinessException(400, "你已加入该课程，无需重复加入");
+        }
+
+        // 4. 插入选课记录
+        StudentCourseEnrollment enrollment = new StudentCourseEnrollment();
+        enrollment.setStudentId(studentId);
+        enrollment.setCoursePlanId(plan.getId());
+        enrollment.setEnrollSource("INVITE");
+        enrollmentMapper.insert(enrollment);
+
+        // 5. 获取课程信息
+        Course course = courseMapper.selectById(plan.getCourseId());
+        String courseName = course != null ? course.getCourseName() : "";
+
+        log.info("学生 {} 通过邀请码 {} 加入了课程 {}", studentId, inviteCode, courseName);
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("courseId", plan.getCourseId());
+        result.put("courseName", courseName);
+        result.put("planId", plan.getId());
+        return result;
+    }
+
     // ==================== 实验任务 ====================
 
     @Override

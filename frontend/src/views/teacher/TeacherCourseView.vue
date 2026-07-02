@@ -6,6 +6,7 @@ import {
   getGrades, saveGrades, exportGrades, getCourseProgress, updateChapters,
 } from '@/api/teacher'
 import { uploadFile } from '@/api/common'
+import http from '@/api'
 
 const loading = ref(false)
 const courses = ref([])
@@ -45,20 +46,48 @@ const isEditing = ref(false)
 const courseForm = reactive({
   courseId: null,
   courseName: '', courseCode: '', semester: '2025-2026-2',
-  className: '', totalHours: 48, weeklyHours: 4,
+  totalHours: 48, weeklyHours: 4,
   startDate: '', endDate: '', description: '',
 })
+
+// 行政班级多选
+const allClasses = ref([])
+const selectedClassIds = ref([])
+
+async function loadAllClasses() {
+  try {
+    const res = await http.get('/common/classes')
+    allClasses.value = (res.data || []).map(c => ({ classId: c.classId, className: c.className }))
+  } catch { allClasses.value = [] }
+}
+
+// 邀请码
+const inviteForm = reactive({
+  inviteCode: '',
+  inviteExpireTime: '',
+  inviteApproval: false,
+  inviteEnabled: true,
+})
+
+function generateInviteCode() {
+  inviteForm.inviteCode = String(Math.floor(1000 + Math.random() * 9000))
+}
 
 const rules = {
   courseName: [{ required: true, message: '请输入课程名称', trigger: 'blur' }],
   courseCode: [{ required: true, message: '请输入课程代码', trigger: 'blur' }],
-  className: [{ required: true, message: '请输入授课班级', trigger: 'blur' }],
 }
 
 function openCreate() {
   isEditing.value = false
   dialogTitle.value = '创建开课计划'
-  Object.assign(courseForm, { courseId: null, courseName: '', courseCode: '', className: '', description: '' })
+  Object.assign(courseForm, { courseId: null, courseName: '', courseCode: '', description: '' })
+  selectedClassIds.value = []
+  generateInviteCode()
+  inviteForm.inviteExpireTime = ''
+  inviteForm.inviteApproval = false
+  inviteForm.inviteEnabled = true
+  loadAllClasses()
   dialogVisible.value = true
 }
 
@@ -66,19 +95,30 @@ function openEdit(row) {
   isEditing.value = true
   dialogTitle.value = '编辑开课计划'
   Object.assign(courseForm, { ...row })
+  selectedClassIds.value = []
+  loadAllClasses()
   dialogVisible.value = true
 }
 
 async function handleSave() {
   const valid = await courseFormRef.value.validate().catch(() => false)
   if (!valid) return
+  if (selectedClassIds.value.length === 0) { ElMessage.warning('请至少选择一个行政班级'); return }
   saving.value = true
   try {
+    const payload = {
+      ...courseForm,
+      classIds: selectedClassIds.value,
+      inviteCode: inviteForm.inviteCode,
+      inviteExpireTime: inviteForm.inviteExpireTime || undefined,
+      inviteApproval: inviteForm.inviteApproval ? 1 : 0,
+      inviteEnabled: inviteForm.inviteEnabled ? 1 : 0,
+    }
     if (isEditing.value) {
-      await updateCourse(courseForm.courseId, courseForm)
+      await updateCourse(courseForm.courseId, payload)
       ElMessage.success('修改成功')
     } else {
-      await createCourse(courseForm)
+      await createCourse(payload)
       ElMessage.success('创建成功，请等待管理员审核')
     }
     dialogVisible.value = false
@@ -259,6 +299,15 @@ async function handleExport(row) {
   }
 }
 
+// 课程详情弹窗
+const detailVisible = ref(false)
+const detailCourse = ref(null)
+
+function openDetail(row) {
+  detailCourse.value = row
+  detailVisible.value = true
+}
+
 onMounted(fetchCourses)
 </script>
 
@@ -281,12 +330,26 @@ onMounted(fetchCourses)
       </div>
 
       <el-table :data="courses" v-loading="loading" stripe>
-        <el-table-column prop="courseName" label="课程名称" min-width="140" />
+        <el-table-column label="课程名称" min-width="140">
+          <template #default="{ row }">
+            <el-button type="primary" link @click="openDetail(row)">{{ row.courseName }}</el-button>
+          </template>
+        </el-table-column>
         <el-table-column prop="courseCode" label="课程代码" width="100" />
-        <el-table-column prop="semester" label="学期" width="120" />
-        <el-table-column prop="className" label="授课班级" width="140" />
-        <el-table-column prop="studentCount" label="学生数" width="80" />
-        <el-table-column label="课时进度" width="130">
+        <el-table-column label="行政班级" min-width="160">
+          <template #default="{ row }">
+            <span style="font-size:12px">{{ (row.classNames || []).join('、') || '-' }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="邀请码" width="100">
+          <template #default="{ row }">
+            <el-tag v-if="row.inviteCode" :type="row.inviteEnabled ? 'success' : 'info'" size="small">
+              {{ row.inviteCode }}
+            </el-tag>
+            <span v-else style="color:#c0c4cc">-</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="课时进度" width="120">
           <template #default="{ row }"><span style="white-space:nowrap">{{ row.completedHours || 0 }}/{{ row.totalHours }} ({{ row.weeklyHours }}课时/周)</span></template>
         </el-table-column>
         <el-table-column label="审核状态" width="100">
@@ -320,7 +383,7 @@ onMounted(fetchCourses)
     </div>
 
     <!-- ========== 创建/编辑课程弹窗 ========== -->
-    <el-dialog v-model="dialogVisible" :title="dialogTitle" width="560px" destroy-on-close>
+    <el-dialog v-model="dialogVisible" :title="dialogTitle" width="650px" destroy-on-close top="3vh">
       <el-form ref="courseFormRef" :model="courseForm" :rules="rules" label-width="80px">
         <el-row :gutter="16">
           <el-col :span="12">
@@ -344,31 +407,62 @@ onMounted(fetchCourses)
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="授课班级" prop="className">
-              <el-input v-model="courseForm.className" placeholder="如：软件工程2024-1班" />
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <el-row :gutter="16">
-          <el-col :span="8">
             <el-form-item label="总课时">
               <el-input-number v-model="courseForm.totalHours" :min="1" :max="200" style="width:100%" />
             </el-form-item>
           </el-col>
-          <el-col :span="8">
+        </el-row>
+        <el-row :gutter="16">
+          <el-col :span="12">
             <el-form-item label="周课时">
               <el-input-number v-model="courseForm.weeklyHours" :min="1" :max="20" style="width:100%" />
             </el-form-item>
           </el-col>
-          <el-col :span="8">
+          <el-col :span="12">
             <el-form-item label="开课日期">
-              <el-date-picker v-model="courseForm.startDate" type="date" style="width:100%" placeholder="选择日期" />
+              <el-date-picker v-model="courseForm.startDate" type="date" placeholder="选择日期" style="width:100%" />
             </el-form-item>
           </el-col>
         </el-row>
         <el-form-item label="课程描述">
           <el-input v-model="courseForm.description" type="textarea" :rows="2" placeholder="请输入课程描述..." />
         </el-form-item>
+
+        <!-- 行政班级多选 -->
+        <el-divider content-position="left">行政班级（勾选后学生自动入班）</el-divider>
+        <el-checkbox-group v-model="selectedClassIds" class="class-checkbox-group">
+          <el-checkbox v-for="c in allClasses" :key="c.classId" :value="c.classId" :label="c.classId">
+            {{ c.className }}
+          </el-checkbox>
+        </el-checkbox-group>
+        <div v-if="allClasses.length === 0" style="color:#909399;font-size:13px">
+          暂无行政班级数据，请先联系管理员创建
+        </div>
+
+        <!-- 邀请码 -->
+        <el-divider content-position="left">邀请码</el-divider>
+        <el-row :gutter="16">
+          <el-col :span="10">
+            <el-form-item label="邀请码">
+              <el-input v-model="inviteForm.inviteCode" readonly style="width:100%">
+                <template #append>
+                  <el-button @click="generateInviteCode">🔄</el-button>
+                </template>
+              </el-input>
+            </el-form-item>
+          </el-col>
+          <el-col :span="7">
+            <el-form-item label="有效期">
+              <el-date-picker v-model="inviteForm.inviteExpireTime" type="date" placeholder="不限" style="width:100%" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="7">
+            <el-form-item label="入班审核">
+              <el-switch v-model="inviteForm.inviteApproval" />
+              <span style="margin-left:4px;font-size:12px;color:#909399">{{ inviteForm.inviteApproval ? '需审核' : '直接入班' }}</span>
+            </el-form-item>
+          </el-col>
+        </el-row>
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
@@ -466,6 +560,39 @@ onMounted(fetchCourses)
         <el-button type="primary" :loading="saving" @click="handleGradeSave">保存成绩</el-button>
       </template>
     </el-dialog>
+
+    <!-- ========== 课程详情弹窗 ========== -->
+    <el-dialog v-model="detailVisible" :title="detailCourse?.courseName" width="500px" destroy-on-close>
+      <el-descriptions v-if="detailCourse" :column="2" border size="small">
+        <el-descriptions-item label="课程名称">{{ detailCourse.courseName }}</el-descriptions-item>
+        <el-descriptions-item label="课程代码">{{ detailCourse.courseCode }}</el-descriptions-item>
+        <el-descriptions-item label="学期">{{ detailCourse.semester }}</el-descriptions-item>
+        <el-descriptions-item label="周课时">{{ detailCourse.weeklyHours }} 课时/周</el-descriptions-item>
+        <el-descriptions-item label="总课时">{{ detailCourse.totalHours }}</el-descriptions-item>
+        <el-descriptions-item label="已完成课时">{{ detailCourse.completedHours || 0 }}</el-descriptions-item>
+        <el-descriptions-item label="行政班级" :span="2">
+          {{ (detailCourse.classNames || []).join('、') || '-' }}
+        </el-descriptions-item>
+        <el-descriptions-item label="邀请码">
+          <el-tag v-if="detailCourse.inviteCode" :type="detailCourse.inviteEnabled ? 'success' : 'info'" size="small">
+            {{ detailCourse.inviteCode }}
+          </el-tag>
+          <span v-else>-</span>
+        </el-descriptions-item>
+        <el-descriptions-item label="学生数">{{ detailCourse.studentCount || 0 }}</el-descriptions-item>
+        <el-descriptions-item label="审核状态">
+          <el-tag :type="auditStatusConfig[detailCourse.auditStatus]?.type" size="small">
+            {{ auditStatusConfig[detailCourse.auditStatus]?.label }}
+          </el-tag>
+        </el-descriptions-item>
+        <el-descriptions-item label="课程进度">
+          <el-progress :percentage="detailCourse.progress || 0" :stroke-width="8" />
+        </el-descriptions-item>
+      </el-descriptions>
+      <template #footer>
+        <el-button @click="detailVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -474,6 +601,16 @@ onMounted(fetchCourses)
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+
+.class-checkbox-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+
+.class-checkbox-group .el-checkbox {
+  margin-right: 0;
 }
 
 .chapter-toolbar {

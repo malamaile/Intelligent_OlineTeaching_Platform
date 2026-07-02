@@ -28,6 +28,10 @@ public class StudentCourseEnrollment {
     @TableField("is_completed")
     private Integer isCompleted;
 
+    /** 来源 */
+    @TableField("enroll_source")
+    private String enrollSource;
+
     /** 选课时间 */
     @TableField("enroll_time")
     private LocalDateTime enrollTime;
@@ -79,6 +83,9 @@ public class StudentCourseEnrollment {
     public void setIsCompleted(Integer isCompleted) {
         this.isCompleted = isCompleted;
     }
+
+    public String getEnrollSource() { return enrollSource; }
+    public void setEnrollSource(String enrollSource) { this.enrollSource = enrollSource; }
 
     public LocalDateTime getEnrollTime() {
         return enrollTime;

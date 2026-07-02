@@ -60,6 +60,11 @@ public interface StudentService {
      */
     Map<String, Object> updateProgress(Long courseId, Long chapterId, Integer position, Integer duration);
 
+    /**
+     * 通过邀请码加入课程
+     */
+    Map<String, Object> joinByInviteCode(String inviteCode);
+
     // ==================== 实验任务 ====================
 
     /**

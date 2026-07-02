@@ -59,6 +59,9 @@ public class TeacherServiceImpl implements TeacherService {
     private CourseChapterMapper courseChapterMapper;
 
     @Autowired
+    private CoursePlanClassMapper coursePlanClassMapper;
+
+    @Autowired
     private StudentCourseEnrollmentMapper enrollmentMapper;
 
     @Autowired
@@ -424,6 +427,21 @@ public class TeacherServiceImpl implements TeacherService {
             courseMap.put("completedHours", (int) (totalHours * progress.doubleValue() / 100));
             courseMap.put("progress", progress.intValue());
 
+            // 邀请码信息
+            courseMap.put("inviteCode", plan.getInviteCode());
+            courseMap.put("inviteEnabled", plan.getInviteEnabled());
+
+            // 关联班级名称列表
+            QueryWrapper<CoursePlanClass> cpcQw = new QueryWrapper<>();
+            cpcQw.eq("course_plan_id", plan.getId());
+            List<CoursePlanClass> cpcList = coursePlanClassMapper.selectList(cpcQw);
+            List<String> classNames = new ArrayList<>();
+            for (CoursePlanClass cpc : cpcList) {
+                SysClass sc = sysClassMapper.selectById(cpc.getClassId());
+                if (sc != null) classNames.add(sc.getClassName());
+            }
+            courseMap.put("classNames", classNames);
+
             courseList.add(courseMap);
         }
 
@@ -480,34 +498,45 @@ public class TeacherServiceImpl implements TeacherService {
             plan.setSemesterId(Long.valueOf(semesterVal.toString()));
         }
 
-        // 兼容前端字段名：className(班级名称字符串) / classId(Long)
-        Object classVal = readInputField(courseData, "className", "classId");
-        if (classVal instanceof String) {
-            Long resolved = resolveClassId((String) classVal);
-            if (resolved == null) {
-                throw new BusinessException(400, "未找到班级：" + classVal);
+        // 班级：支持多选行政班级 classIds 数组
+        List<Long> classIds = new ArrayList<>();
+        Object classIdsObj = courseData.get("classIds");
+        if (classIdsObj instanceof List) {
+            for (Object id : (List<?>) classIdsObj) {
+                classIds.add(Long.valueOf(id.toString()));
             }
-            plan.setClassId(resolved);
-        } else if (classVal != null) {
-            plan.setClassId(Long.valueOf(classVal.toString()));
         } else {
-            // 兜底：使用教师所属班级（如果教师只有一个班级）
-            QueryWrapper<CoursePlan> existingPlanQw = new QueryWrapper<>();
-            existingPlanQw.eq("teacher_id", teacherId)
-                    .eq("audit_status", AUDIT_APPROVED)
-                    .select("class_id")
-                    .last("LIMIT 1");
-            CoursePlan existingPlan = coursePlanMapper.selectOne(existingPlanQw);
-            if (existingPlan != null && existingPlan.getClassId() != null) {
-                plan.setClassId(existingPlan.getClassId());
-            } else {
-                throw new BusinessException(400, "班级信息不能为空，请传入 classId 或 className");
+            // 兼容旧字段
+            Object classVal = readInputField(courseData, "className", "classId");
+            if (classVal instanceof String) {
+                Long resolved = resolveClassId((String) classVal);
+                if (resolved != null) classIds.add(resolved);
+            } else if (classVal != null) {
+                classIds.add(Long.valueOf(classVal.toString()));
             }
         }
-
+        if (classIds.isEmpty()) {
+            throw new BusinessException(400, "请至少选择一个行政班级");
+        }
+        // 取第一个班级作为 plan.class_id（保持兼容）
+        plan.setClassId(classIds.get(0));
         plan.setTeacherId(teacherId);
 
-        // 如果前端没有传 scheduleInfo，则从 totalHours/weeklyHours/startDate/endDate 构建 JSON
+        // 邀请码处理
+        String inviteCode = (String) courseData.get("inviteCode");
+        if (inviteCode != null && !inviteCode.isEmpty()) {
+            plan.setInviteCode(inviteCode);
+        }
+        if (courseData.containsKey("inviteExpireTime") && courseData.get("inviteExpireTime") != null) {
+            String expStr = courseData.get("inviteExpireTime").toString();
+            plan.setInviteExpireTime(LocalDateTime.parse(expStr.replace(" ", "T").replaceFirst("\\.[0-9]+Z?$", "").replaceFirst("[+-]\\d{2}:\\d{2}$", "")));
+        }
+        plan.setInviteApproval(courseData.get("inviteApproval") != null
+                ? Integer.valueOf(courseData.get("inviteApproval").toString()) : 0);
+        plan.setInviteEnabled(courseData.get("inviteEnabled") != null
+                ? Integer.valueOf(courseData.get("inviteEnabled").toString()) : 1);
+
+        // scheduleInfo
         String scheduleInfo = (String) courseData.get("scheduleInfo");
         if (scheduleInfo == null) {
             try {
@@ -523,8 +552,35 @@ public class TeacherServiceImpl implements TeacherService {
         }
         plan.setScheduleInfo(scheduleInfo);
         plan.setAuditStatus(AUDIT_PENDING);
-
         coursePlanMapper.insert(plan);
+
+        // 3. 保存行政班级关联 + 自动导入学生
+        int enrolledCount = 0;
+        for (Long cid : classIds) {
+            CoursePlanClass cpc = new CoursePlanClass();
+            cpc.setCoursePlanId(plan.getId());
+            cpc.setClassId(cid);
+            coursePlanClassMapper.insert(cpc);
+
+            // 查询该班级的所有学生并自动入班（去重）
+            QueryWrapper<SysUser> stuQw = new QueryWrapper<>();
+            stuQw.eq("class_id", cid);
+            List<SysUser> students = sysUserMapper.selectList(stuQw);
+            for (SysUser stu : students) {
+                QueryWrapper<StudentCourseEnrollment> existQw = new QueryWrapper<>();
+                existQw.eq("student_id", stu.getId()).eq("course_plan_id", plan.getId());
+                if (enrollmentMapper.selectCount(existQw) == 0) {
+                    StudentCourseEnrollment enroll = new StudentCourseEnrollment();
+                    enroll.setStudentId(stu.getId());
+                    enroll.setCoursePlanId(plan.getId());
+                    enroll.setEnrollSource("ADMIN_CLASS");
+                    enrollmentMapper.insert(enroll);
+                    enrolledCount++;
+                }
+            }
+        }
+        log.info("教师 {} 创建课程计划 {}，关联 {} 个班级，自动导入 {} 名学生",
+                teacherId, plan.getId(), classIds.size(), enrolledCount);
 
         // 3. 创建章节
         List<Map<String, Object>> chapters = (List<Map<String, Object>>) courseData.get("chapters");
@@ -2598,7 +2654,15 @@ public class TeacherServiceImpl implements TeacherService {
         QueryWrapper<SysSemester> qw = new QueryWrapper<>();
         qw.eq("semester_name", semesterName);
         SysSemester sem = sysSemesterMapper.selectOne(qw);
-        return sem != null ? sem.getId() : null;
+        if (sem != null) return sem.getId();
+        // fallback：用 LIKE 模糊匹配
+        QueryWrapper<SysSemester> likeQw = new QueryWrapper<>();
+        likeQw.like("semester_name", semesterName);
+        SysSemester likeSem = sysSemesterMapper.selectOne(likeQw);
+        if (likeSem != null) return likeSem.getId();
+        // 最后兜底：取第一个学期
+        List<SysSemester> all = sysSemesterMapper.selectList(null);
+        return (all != null && !all.isEmpty()) ? all.get(0).getId() : null;
     }
 
     /**
