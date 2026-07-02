@@ -481,8 +481,21 @@ public class StudentServiceImpl implements StudentService {
             chapterMap.put("contentText", chapter.getContentText());
             chapterMap.put("attachmentUrl", chapter.getAttachmentUrl());
             chapterMap.put("status", status);
-            // materials 从 teaching_resource 表查询已审核的章节课件
+            // materials：章节课件（直接从 chapter 读取，无需审核）
             List<Map<String, Object>> materials = new ArrayList<>();
+            // 1. 章节自身的附件（教师直接上传的课件）
+            if (chapter.getAttachmentUrl() != null && !chapter.getAttachmentUrl().isEmpty()) {
+                Map<String, Object> matMap = new LinkedHashMap<>();
+                matMap.put("materialId", chapter.getId() * 1000); // 虚拟 ID，避免与 teaching_resource 冲突
+                matMap.put("name", chapter.getChapterName() + " 课件");
+                matMap.put("fileUrl", chapter.getAttachmentUrl());
+                matMap.put("fileName", chapter.getAttachmentUrl().substring(
+                        chapter.getAttachmentUrl().lastIndexOf('/') + 1));
+                matMap.put("fileType", getFileExt(chapter.getAttachmentUrl()));
+                matMap.put("fileSize", 0);
+                materials.add(matMap);
+            }
+            // 2. 教学资源库中关联到此章节的已审核资源
             QueryWrapper<TeachingResource> matQw = new QueryWrapper<>();
             matQw.eq("chapter_id", chapter.getId())
                     .eq("audit_status", "APPROVED")
@@ -701,55 +714,6 @@ public class StudentServiceImpl implements StudentService {
         return result;
     }
 
-    @Override
-    @Transactional(rollbackFor = Exception.class)
-    public Map<String, Object> joinByInviteCode(String inviteCode) {
-        Long studentId = UserContext.getUserId();
-
-        // 1. 查找邀请码对应的课程计划
-        QueryWrapper<CoursePlan> planQw = new QueryWrapper<>();
-        planQw.eq("invite_code", inviteCode)
-                .eq("invite_enabled", 1);
-        CoursePlan plan = coursePlanMapper.selectOne(planQw);
-
-        if (plan == null) {
-            throw new BusinessException(400, "邀请码无效或已失效");
-        }
-
-        // 2. 检查是否过期
-        if (plan.getInviteExpireTime() != null
-                && plan.getInviteExpireTime().isBefore(LocalDateTime.now())) {
-            throw new BusinessException(400, "邀请码已过期");
-        }
-
-        // 3. 检查是否已加入
-        QueryWrapper<StudentCourseEnrollment> existQw = new QueryWrapper<>();
-        existQw.eq("student_id", studentId)
-                .eq("course_plan_id", plan.getId());
-        if (enrollmentMapper.selectCount(existQw) > 0) {
-            throw new BusinessException(400, "你已加入该课程，无需重复加入");
-        }
-
-        // 4. 插入选课记录
-        StudentCourseEnrollment enrollment = new StudentCourseEnrollment();
-        enrollment.setStudentId(studentId);
-        enrollment.setCoursePlanId(plan.getId());
-        enrollment.setEnrollSource("INVITE");
-        enrollmentMapper.insert(enrollment);
-
-        // 5. 获取课程信息
-        Course course = courseMapper.selectById(plan.getCourseId());
-        String courseName = course != null ? course.getCourseName() : "";
-
-        log.info("学生 {} 通过邀请码 {} 加入了课程 {}", studentId, inviteCode, courseName);
-
-        Map<String, Object> result = new LinkedHashMap<>();
-        result.put("courseId", plan.getCourseId());
-        result.put("courseName", courseName);
-        result.put("planId", plan.getId());
-        return result;
-    }
-
     /**
      * 更新或创建今日学习分析记录
      */
@@ -779,55 +743,6 @@ public class StudentServiceImpl implements StudentService {
             );
             analyticsDailyMapper.updateById(daily);
         }
-    }
-
-    @Override
-    @Transactional(rollbackFor = Exception.class)
-    public Map<String, Object> joinByInviteCode(String inviteCode) {
-        Long studentId = UserContext.getUserId();
-
-        // 1. 查找邀请码对应的课程计划
-        QueryWrapper<CoursePlan> planQw = new QueryWrapper<>();
-        planQw.eq("invite_code", inviteCode)
-                .eq("invite_enabled", 1);
-        CoursePlan plan = coursePlanMapper.selectOne(planQw);
-
-        if (plan == null) {
-            throw new BusinessException(400, "邀请码无效或已失效");
-        }
-
-        // 2. 检查是否过期
-        if (plan.getInviteExpireTime() != null
-                && plan.getInviteExpireTime().isBefore(LocalDateTime.now())) {
-            throw new BusinessException(400, "邀请码已过期");
-        }
-
-        // 3. 检查是否已加入
-        QueryWrapper<StudentCourseEnrollment> existQw = new QueryWrapper<>();
-        existQw.eq("student_id", studentId)
-                .eq("course_plan_id", plan.getId());
-        if (enrollmentMapper.selectCount(existQw) > 0) {
-            throw new BusinessException(400, "你已加入该课程，无需重复加入");
-        }
-
-        // 4. 插入选课记录
-        StudentCourseEnrollment enrollment = new StudentCourseEnrollment();
-        enrollment.setStudentId(studentId);
-        enrollment.setCoursePlanId(plan.getId());
-        enrollment.setEnrollSource("INVITE");
-        enrollmentMapper.insert(enrollment);
-
-        // 5. 获取课程信息
-        Course course = courseMapper.selectById(plan.getCourseId());
-        String courseName = course != null ? course.getCourseName() : "";
-
-        log.info("学生 {} 通过邀请码 {} 加入了课程 {}", studentId, inviteCode, courseName);
-
-        Map<String, Object> result = new LinkedHashMap<>();
-        result.put("courseId", plan.getCourseId());
-        result.put("courseName", courseName);
-        result.put("planId", plan.getId());
-        return result;
     }
 
     // ==================== 实验任务 ====================
@@ -2034,6 +1949,14 @@ public class StudentServiceImpl implements StudentService {
         result.put("suggestions", diagnosis.getRecommendResources());
 
         return result;
+    }
+
+    /** 从文件 URL 中提取扩展名 */
+    private String getFileExt(String url) {
+        if (url == null || url.isEmpty()) return "";
+        String name = url.contains("?") ? url.substring(0, url.indexOf("?")) : url;
+        int dot = name.lastIndexOf('.');
+        return dot > 0 ? name.substring(dot + 1).toLowerCase() : "";
     }
 
 }

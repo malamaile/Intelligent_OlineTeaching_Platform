@@ -1,8 +1,9 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { getMyCourses } from '@/api/student'
+import { getMyCourses, joinByInviteCode } from '@/api/student'
 import { getSemesters } from '@/api/common'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 const router = useRouter()
 
@@ -69,6 +70,25 @@ function getProgressColor(progress) {
   return '#e6a23c'
 }
 
+// 邀请码加入
+const inviteVisible = ref(false)
+const inviteCode = ref('')
+const inviteJoining = ref(false)
+
+async function handleJoinByInvite() {
+  if (!inviteCode.value.trim()) { ElMessage.warning('请输入邀请码'); return }
+  inviteJoining.value = true
+  try {
+    await joinByInviteCode({ inviteCode: inviteCode.value.trim() })
+    ElMessage.success('加入成功')
+    inviteVisible.value = false
+    inviteCode.value = ''
+    fetchCourses()
+  } catch (e) {
+    ElMessage.error(e.response?.data?.message || '加入失败')
+  } finally { inviteJoining.value = false }
+}
+
 onMounted(() => {
   fetchSemesters()
   fetchCourses()
@@ -79,7 +99,21 @@ onMounted(() => {
   <div class="page-container">
     <div class="page-header">
       <h1 class="page-title">课程学习</h1>
+      <el-button type="primary" @click="inviteVisible = true">加入课程</el-button>
     </div>
+
+    <!-- 邀请码加入弹窗 -->
+    <el-dialog v-model="inviteVisible" title="加入课程" width="400px" destroy-on-close>
+      <el-form label-width="80px" @submit.prevent="handleJoinByInvite">
+        <el-form-item label="邀请码">
+          <el-input v-model="inviteCode" placeholder="请输入4位课程邀请码" maxlength="4" style="width:200px" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="inviteVisible = false">取消</el-button>
+        <el-button type="primary" :loading="inviteJoining" @click="handleJoinByInvite">加入</el-button>
+      </template>
+    </el-dialog>
 
     <!-- 搜索栏 -->
     <div class="card-wrapper">

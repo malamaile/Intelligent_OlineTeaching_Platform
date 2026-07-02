@@ -65,11 +65,6 @@ public interface StudentService {
      */
     Map<String, Object> joinByInviteCode(String inviteCode);
 
-    /**
-     * 通过邀请码加入课程
-     */
-    Map<String, Object> joinByInviteCode(String inviteCode);
-
     // ==================== 实验任务 ====================
 
     /**
